@@ -1,0 +1,137 @@
+export interface User {
+  id: string;
+  email: string;
+  username: string;
+  is_active: boolean;
+  is_verified: boolean;
+  created_at: string;
+  updated_at?: string;
+}
+
+export type DeviceType = "WINDOWS" | "MACOS" | "LINUX";
+export type DeviceStatus = "PENDING" | "ACTIVE" | "DISCONNECTED" | "REVOKED";
+
+export interface Device {
+  id: string;
+  user_id: string;
+  name: string;
+  device_type: DeviceType;
+  status: DeviceStatus;
+  pairing_code?: string | null;
+  last_seen_at?: string | null;
+  agent_version?: string | null;
+  os_info?: Record<string, any> | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export interface Workspace {
+  id: string;
+  device_id: string;
+  user_id: string;
+  name: string;
+  root_path: string;
+  is_active: boolean;
+  settings?: Record<string, any> | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export type PrivacyMode = "CLOUD_ASSISTED" | "LOCAL_ONLY" | "CONFIGURABLE";
+
+export interface Project {
+  id: string;
+  workspace_id: string;
+  user_id: string;
+  name: string;
+  description?: string | null;
+  root_path: string;
+  detected_languages?: string[] | null;
+  detected_frameworks?: string[] | null;
+  privacy_mode: PrivacyMode;
+  status: string;
+  last_indexed_at?: string | null;
+  settings?: Record<string, any> | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export interface ProviderAccount {
+  id: string;
+  user_id: string;
+  provider_type: string;
+  display_name: string;
+  has_api_key: boolean;
+  base_url?: string | null;
+  is_enabled: boolean;
+  is_validated: boolean;
+  last_validated_at?: string | null;
+  settings?: Record<string, any> | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export interface ModelEntry {
+  id: string;
+  provider_id: string;
+  model_id_str: string;
+  display_name: string;
+  context_window?: number | null;
+  supports_tools: boolean;
+  supports_streaming: boolean;
+  supports_structured_output: boolean;
+  coding_score?: number | null;
+  reasoning_score?: number | null;
+  speed_tier?: string | null;
+  is_available: boolean;
+  cost_per_1k_input?: number | null;
+  cost_per_1k_output?: number | null;
+}
+
+export interface Conversation {
+  id: string;
+  user_id: string;
+  project_id?: string | null;
+  title?: string | null;
+  model_id?: string | null;
+  agent_type?: string | null;
+  status: string;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export interface Message {
+  id: string;
+  conversation_id: string;
+  role: "user" | "assistant" | "system" | "tool";
+  content: string;
+  model_used?: string | null;
+  token_count?: number | null;
+  tool_calls?: any[] | null;
+  tool_results?: any[] | null;
+  created_at: string;
+}
+
+export interface AgentTask {
+  id: string;
+  conversation_id: string;
+  project_id: string;
+  user_id: string;
+  description: string;
+  status: "PENDING" | "PLANNING" | "EXECUTING" | "PAUSED" | "VERIFYING" | "COMPLETED" | "FAILED" | "CANCELLED";
+  complexity: "SIMPLE" | "MODERATE" | "COMPLEX" | "CRITICAL";
+  priority: number;
+  model_used?: string | null;
+  agent_type?: string | null;
+  plan?: Record<string, any> | null;
+  completed_steps?: any[] | null;
+  modified_files?: string[] | null;
+  commands_executed?: any[] | null;
+  verification_results?: Record<string, any> | null;
+  token_usage?: Record<string, any> | null;
+  error_info?: Record<string, any> | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}

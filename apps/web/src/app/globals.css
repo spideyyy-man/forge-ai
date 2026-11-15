@@ -1,0 +1,135 @@
+@import "tailwindcss";
+
+/*
+  FORGE AI — "cold iron, hot forge"
+  A disciplined graphite control room (cool iron) with one signature molten-ember
+  accent reserved for live energy and primary action. Indigo/iris stays as the
+  quiet structural accent for links and information.
+*/
+@theme {
+  --color-background: #0a0a0f;
+  --color-foreground: #e9edf5;
+
+  --color-surface: #111119;
+  --color-surface-elevated: #16161f;
+  --color-border: #222236;
+  --color-border-strong: #2e2e46;
+
+  --color-muted: #6b7280;
+  --color-muted-foreground: #9aa3b4;
+
+  /* Signature forge ember (warm) — use sparingly */
+  --color-ember: #f97316;
+  --color-ember-hot: #fb923c;
+  --color-ember-deep: #ea580c;
+
+  /* Structural accent (cool) */
+  --color-iris: #6366f1;
+  --color-iris-bright: #818cf8;
+
+  --color-success: #10b981;
+  --color-danger: #f43f5e;
+  --color-warning: #f59e0b;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Space Grotesk", "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+
+  --animate-ember-pulse: ember-pulse 2.4s ease-in-out infinite;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    overflow-x: hidden;
+  }
+
+  /* Forge ambiance: a faint ember heat at the top-right, cool iris at the left. */
+  .app-ambient {
+    background-color: var(--color-background);
+    background-image:
+      radial-gradient(900px 540px at 82% -10%, rgba(249, 115, 22, 0.1), transparent 60%),
+      radial-gradient(720px 520px at 6% -4%, rgba(99, 102, 241, 0.09), transparent 55%);
+  }
+
+  /* Reserve the geometric display face for large headings only. Small UI titles
+     (h3/h4, card headers) read more naturally in Inter, so they inherit the body font. */
+  h1, h2 {
+    font-family: var(--font-display);
+    letter-spacing: -0.014em;
+  }
+  h3, h4 {
+    font-family: var(--font-sans);
+    letter-spacing: -0.006em;
+  }
+
+  ::selection {
+    background: rgba(249, 115, 22, 0.28);
+    color: #fff;
+  }
+}
+
+/* Thin, quiet scrollbars that warm on hover. */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #262638;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3a54;
+}
+
+/* --- Motion --------------------------------------------------------------- */
+@keyframes forge-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ember-pulse {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.55);
+  }
+  50% {
+    opacity: 0.85;
+    box-shadow: 0 0 0 5px rgba(249, 115, 22, 0);
+  }
+}
+
+/* One orchestrated page-load reveal — opt-in per element via style delay. */
+.animate-in {
+  animation: forge-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ember-dot {
+  animation: var(--animate-ember-pulse);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* --- Utility surfaces ----------------------------------------------------- */
+.glass-panel {
+  background: rgba(17, 17, 25, 0.72);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--color-border);
+}

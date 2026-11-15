@@ -1,0 +1,15 @@
+[server]
+url = "ws://localhost:8000/ws/agent"
+
+[agent]
+heartbeat_interval = 30
+max_reconnect_delay = 60
+log_level = "INFO"
+
+[security]
+terminal_timeout = 300
+max_file_size_mb = 50
+protected_patterns = [".env", ".env.*", "*.pem", "*.key", "id_rsa", "id_ed25519"]
+
+[workspaces]
+approved = []
