@@ -142,20 +142,38 @@ class ModelRouter:
         configured_keys: Optional[Dict[str, str]] = None,
         stream: bool = False,
         candidates: Optional[List[Any]] = None,
+        local_only: bool = False,
     ) -> Dict[str, Any]:
-        """Execute model completion with automatic provider fallback on rate-limits or errors."""
+        """Execute model completion with automatic provider fallback on rate-limits or errors.
+
+        When ``local_only`` is set, candidates are hard-restricted to local (Ollama) models
+        and the router will NEVER fall back to a cloud provider — a Local-Only request that
+        cannot be served locally fails with a clear error rather than leaking to the cloud.
+        """
         configured_keys = configured_keys or {}
         active_providers = list(configured_keys.keys())
 
         # Prefer a caller-supplied (discovery-ranked) candidate list; else fall back to the registry.
         if not candidates:
             candidates = self.get_candidate_models(
-                policy=policy,
+                policy=RouterPolicy.LOCAL_ONLY if local_only else policy,
                 requires_tools=bool(tools),
                 configured_providers=active_providers if active_providers else None,
             )
         if not candidates:
             candidates = list(MODEL_REGISTRY.values())
+
+        if local_only:
+            # Enforce the privacy boundary here, in trusted code: strip every non-local model.
+            candidates = [c for c in candidates if str(getattr(c, "provider", "")).upper() == "OLLAMA"]
+            if not candidates:
+                candidates = [m for m in MODEL_REGISTRY.values() if m.provider == "OLLAMA"]
+            if not candidates:
+                return {
+                    "success": False,
+                    "error": "Local-Only mode: no local (Ollama) model is available. Start Ollama and pull a model.",
+                    "fallback_attempts": 0,
+                }
 
         errors: List[str] = []
 

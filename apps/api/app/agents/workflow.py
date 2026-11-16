@@ -65,11 +65,18 @@ async def coding_node(state: AgentExecutionState) -> Dict[str, Any]:
     conv_id = str(state.get("task_id"))
     workspace_path = state.get("workspace_path", ".")
 
-    # Discovery-ranked candidate models (registry ∩ live-available + free extras).
-    candidates = [
-        ModelCapability(model_id=c["model_id"], provider=c["provider"], litellm_id=c["litellm_id"], api_base=c.get("api_base"))
-        for c in (state.get("model_candidates") or [])
-    ] or None
+    # Local-Only privacy mode: use only local Ollama models and forbid cloud fallback.
+    local_only = str(state.get("privacy_mode") or "CLOUD_ASSISTED").upper() == "LOCAL_ONLY"
+
+    if local_only:
+        from app.providers.registry import MODEL_REGISTRY
+        candidates = [m for m in MODEL_REGISTRY.values() if m.provider == "OLLAMA"] or None
+    else:
+        # Discovery-ranked candidate models (registry ∩ live-available + free extras).
+        candidates = [
+            ModelCapability(model_id=c["model_id"], provider=c["provider"], litellm_id=c["litellm_id"], api_base=c.get("api_base"))
+            for c in (state.get("model_candidates") or [])
+        ] or None
     configured_keys = state.get("configured_keys") or {}
 
     async def complete(messages, tools):
@@ -77,9 +84,10 @@ async def coding_node(state: AgentExecutionState) -> Dict[str, Any]:
         res = await model_router.execute_completion(
             messages=messages,
             tools=tools,
-            policy=RouterPolicy.QUALITY,
+            policy=RouterPolicy.LOCAL_ONLY if local_only else RouterPolicy.QUALITY,
             configured_keys=configured_keys,
             candidates=candidates,
+            local_only=local_only,
         )
         if not res.get("success"):
             return {"success": False, "error": res.get("error")}

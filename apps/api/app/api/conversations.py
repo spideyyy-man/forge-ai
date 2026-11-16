@@ -58,6 +58,20 @@ async def run_agent_workflow(
         workspace = workspace_res.scalars().first()
         workspace_path = workspace.root_path if workspace else "."
 
+        # Resolve the project's privacy mode. LOCAL_ONLY forbids any cloud contact
+        # (including model discovery); it is enforced again in the router.
+        privacy_mode = "CLOUD_ASSISTED"
+        if project_id:
+            try:
+                from app.models.project import Project
+                proj_res = await db.execute(select(Project).where(Project.id == _uuid.UUID(str(project_id))))
+                proj = proj_res.scalar_one_or_none()
+                if proj and proj.privacy_mode is not None:
+                    privacy_mode = str(getattr(proj.privacy_mode, "value", proj.privacy_mode)).upper()
+            except Exception as e:
+                logger.warning("Could not load project privacy mode: %s", e)
+        local_only = privacy_mode == "LOCAL_ONLY"
+
         # Load the user's BYOK provider keys (decrypted) so the agent can call their
         # models. The model registry names providers slightly differently from the
         # ProviderType enum, so map DB type -> registry provider name.
@@ -90,8 +104,10 @@ async def run_agent_workflow(
 
         # FORGE-as-router (Path B): ask each provider what models the key can actually
         # call, then rank registry ∩ live-available first, plus free-friendly extras.
+        # Skipped entirely in Local-Only mode — discovery would contact cloud providers.
         model_candidates = []
-        try:
+        if not local_only:
+          try:
             from app.providers.discovery import discover_models
             from app.providers.router import assemble_candidates
             results = await asyncio.gather(
@@ -109,7 +125,7 @@ async def run_agent_workflow(
                     all_discovered.append(d)
             model_candidates = assemble_candidates(set(configured_keys.keys()), avail, discovered_ok, all_discovered)
             logger.info("Model candidates for task: %s", [c["litellm_id"] for c in model_candidates])
-        except Exception as e:
+          except Exception as e:
             logger.warning("Model discovery failed: %s", e)
 
         # Build a snapshot of the active workspace so the agent reasons about real code.
@@ -127,6 +143,7 @@ async def run_agent_workflow(
             "device_id": device_id,
             "workspace_path": workspace_path,
             "configured_keys": configured_keys,
+            "privacy_mode": privacy_mode,
             "repo_context": repo_context,
             "model_candidates": model_candidates,
             "description": prompt,
