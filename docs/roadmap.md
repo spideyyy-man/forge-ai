@@ -25,9 +25,9 @@ Ship a narrow end-to-end coding workflow that is safe and understandable. Do not
 - [ ] Complete device pairing, authentication, revocation, reconnect, and heartbeat handling.
 - [ ] Validate workspace roots and every path operation, including symlink and protected-file cases.
 - [ ] Ensure file reads/writes are scoped, size-limited, auditable, and return clear errors.
-- [ ] Implement safe file editing with before/after diff data.
-- [ ] Add command approval, execution timeout, output limits, cancellation, and process cleanup.
-- [ ] Make Git status/diff/checkpoint/rollback reliable and preserve pre-existing changes.
+- [x] Implement safe file editing with before/after diff data. *(Implemented+tested: `apply_edit` with unified diff + dry-run preview; `revert_file` undo buffer.)*
+- [ ] Add command approval, execution timeout, output limits, cancellation, and process cleanup. *(Partial: command approval gated in the loop; timeouts/output limits exist in the executor; cancellation not yet.)*
+- [ ] Make Git status/diff/checkpoint/rollback reliable and preserve pre-existing changes. *(Partial: checkpoint-returns-hash and `git_rollback` added+tested; broader reliability unverified.)*
 - [ ] Add focused security tests for all local tools.
 
 **Exit gate:** local agent can safely inspect, edit, test, and restore a throwaway repository while rejecting unauthorized paths and risky commands.
@@ -39,7 +39,7 @@ Ship a narrow end-to-end coding workflow that is safe and understandable. Do not
 - [ ] Reconcile the provider list in the UI, README, registry, and backend.
 - [ ] Enforce provider allowlists and user model selection.
 - [ ] Implement explicit fallback rules for provider errors/rate limits.
-- [ ] Enforce Local-Only routing with tests proving no cloud call occurs.
+- [x] Enforce Local-Only routing with tests proving no cloud call occurs. *(Implemented+tested: router strips non-Ollama candidates under `local_only`, discovery skipped, tests assert cloud is never attempted.)*
 - [ ] Add transparent model/provider/latency/fallback reporting.
 - [ ] Add budget and context controls before broad automatic routing.
 
@@ -49,15 +49,20 @@ Ship a narrow end-to-end coding workflow that is safe and understandable. Do not
 
 - [ ] Connect Agent Studio prompt submission to the task API.
 - [ ] Build structured plans from actual repository inspection.
-- [ ] Add plan review and explicit approval before consequential edits.
-- [ ] Retrieve relevant files only; apply ignore and privacy policies before provider transmission.
-- [ ] Apply edits through local-agent tools and return exact diffs.
-- [ ] Execute selected tests/builds and capture real output/exit codes.
-- [ ] Implement bounded repair attempts based on real diagnostics.
-- [ ] Add cancellation, disconnect recovery, task status persistence, and useful error states.
-- [ ] Report changed files, commands, model/provider, verification, and remaining issues.
+- [x] Add plan review and explicit approval before consequential edits. *(Implemented+tested: every write/command/commit is approval-gated over WebSocket; fail-closed on disconnect/timeout.)*
+- [ ] Retrieve relevant files only; apply ignore and privacy policies before provider transmission. *(Partial: the agent reads files on demand via tools rather than dumping the repo; secret/ignore redaction exists but is not yet applied on every tool path.)*
+- [x] Apply edits through local-agent tools and return exact diffs. *(Implemented+tested: the loop calls `apply_edit`; the UI shows the unified diff for approval.)*
+- [x] Execute selected tests/builds and capture real output/exit codes. *(Implemented+tested: `verification_node` runs real `run_tests` and captures stdout/stderr/exit code.)*
+- [x] Implement bounded repair attempts based on real diagnostics. *(Implemented+tested: test failure is fed back as `repair_context`; bounded by `max_retries`.)*
+- [ ] Add cancellation, disconnect recovery, task status persistence, and useful error states. *(Not yet: the Task API is still CRUD and does not control the live run.)*
+- [ ] Report changed files, commands, model/provider, verification, and remaining issues. *(Partial: completion event reports modified_files, executed_commands, and verification; model/provider surfacing pending.)*
 
 **Exit gate:** a user can ask FORGE to implement a small feature in a real project, review the plan and diff, run tests, and receive a truthful result.
+
+> **Status note (this iteration):** the plan→inspect→propose→approve→apply→test→repair loop is now
+> implemented and unit-tested with injected fakes (33 tests across api + local-agent, web typecheck clean).
+> It has **not** yet been exercised end-to-end against a live paired agent + real LLM; that integration
+> run is the remaining gate before calling Phase 3 done.
 
 ## Phase 4 — Recovery, UX, and onboarding
 
