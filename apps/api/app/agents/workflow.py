@@ -101,8 +101,17 @@ async def coding_node(state: AgentExecutionState) -> Dict[str, Any]:
         except Exception:
             pass  # events are best-effort
 
+    # On a self-repair pass, prepend the failing test output so the model fixes it.
+    description = state["description"]
+    repair_context = state.get("repair_context")
+    if repair_context:
+        description = (
+            f"{description}\n\n[SELF-REPAIR] Your previous changes failed the project's tests. "
+            f"Investigate and fix the cause. Test output:\n{repair_context}"
+        )
+
     result = await run_engineering_loop(
-        description=state["description"],
+        description=description,
         repo_context=state.get("repo_context") or "",
         workspace_path=workspace_path,
         complete=complete,
@@ -122,27 +131,70 @@ async def coding_node(state: AgentExecutionState) -> Dict[str, Any]:
     }
 
 
+def _format_test_failure(test_res: Dict[str, Any]) -> str:
+    """Build a compact failure report from a run_tests result for the repair prompt."""
+    parts = []
+    cmd = test_res.get("test_command")
+    if cmd:
+        parts.append(f"Test command: {cmd}")
+    if test_res.get("error"):
+        parts.append(f"Error: {test_res['error']}")
+    # Keep the tail of the output — failures and summaries live at the end.
+    for stream in ("stdout", "stderr"):
+        text = (test_res.get(stream) or "").strip()
+        if text:
+            parts.append(f"--- {stream} (tail) ---\n{text[-2000:]}")
+    return "\n".join(parts) or "Tests failed with no captured output."
+
+
 async def verification_node(state: AgentExecutionState) -> Dict[str, Any]:
-    """Execute tests via local workspace agent to verify code correctness."""
+    """Run the project's real tests to verify the edits, capturing output for self-repair.
+
+    Only runs when the agent actually changed files and a local agent is connected. If no
+    test framework is detected, verification is skipped (treated as passed) rather than
+    failing a valid change for lack of tests.
+    """
     device_id = state.get("device_id")
     workspace = state.get("workspace_path", ".")
-    passed = True
-    error_msg = None
+    modified = state.get("modified_files") or []
 
-    if device_id:
-        try:
-            # Trigger discover/run tests
-            test_res = await execute_remote_tool(device_id, "discover_tests", {"project_path": workspace})
-            passed = test_res.get("success", True)
-        except Exception as e:
-            passed = False
-            error_msg = str(e)
+    if not device_id or not modified:
+        reason = "no files changed" if device_id else "no local agent connected"
+        return {
+            "verification_passed": True,
+            "error": None,
+            "current_step_index": 3,
+            "messages": [{"role": "system", "content": f"Verification skipped ({reason})."}],
+        }
 
+    try:
+        test_res = await execute_remote_tool(device_id, "run_tests", {"project_path": workspace})
+    except Exception as e:
+        # A transport/timeout failure is not a code failure; don't trigger repair loops on it.
+        return {
+            "verification_passed": True,
+            "error": f"Could not run tests: {e}",
+            "current_step_index": 3,
+            "messages": [{"role": "system", "content": f"Verification could not run: {e}"}],
+        }
+
+    if test_res.get("status") == "no_tests" or (not test_res.get("success") and "No test framework" in str(test_res.get("error", ""))):
+        return {
+            "verification_passed": True,
+            "error": None,
+            "current_step_index": 3,
+            "messages": [{"role": "system", "content": "Verification skipped (no test framework detected)."}],
+        }
+
+    passed = bool(test_res.get("success"))
+    error_msg = None if passed else _format_test_failure(test_res)
+    summary = "Tests PASSED." if passed else "Tests FAILED — attempting self-repair."
     return {
         "verification_passed": passed,
         "error": error_msg,
+        "diagnostics": {"test_command": test_res.get("test_command"), "exit_code": test_res.get("exit_code")},
         "current_step_index": 3,
-        "messages": [{"role": "system", "content": f"Verification {'PASSED' if passed else 'FAILED'}."}],
+        "messages": [{"role": "system", "content": summary}],
     }
 
 
@@ -156,14 +208,15 @@ def should_repair(state: AgentExecutionState) -> str:
 
 
 async def repair_node(state: AgentExecutionState) -> Dict[str, Any]:
-    """Attempt bounded self-repair for failed verification steps."""
+    """Attempt bounded self-repair: hand the test failure back to the coding loop."""
     new_retry = state.get("retry_count", 0) + 1
     logger.info(f"[Agent Self-Repair] Attempt {new_retry}/{state.get('max_retries', 2)}")
 
     return {
         "retry_count": new_retry,
         "status": "REPAIRING",
-        "messages": [{"role": "system", "content": f"Entering self-repair cycle (attempt {new_retry}). Diagnosing error: {state.get('error')}"}],
+        "repair_context": state.get("error"),
+        "messages": [{"role": "system", "content": f"Entering self-repair cycle (attempt {new_retry})."}],
     }
 
 

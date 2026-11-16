@@ -139,6 +139,7 @@ async def run_agent_workflow(
             "undo_buffer": [],
             "diagnostics": None,
             "error": None,
+            "repair_context": None,
             "verification_passed": False,
             "retry_count": 0,
             "max_retries": 2,

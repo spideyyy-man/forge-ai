@@ -22,6 +22,7 @@ class AgentExecutionState(TypedDict):
     undo_buffer: Optional[List[Dict[str, Any]]]  # per-file {path, old_content, was_created} for rollback
     diagnostics: Optional[Dict[str, Any]]
     error: Optional[str]
+    repair_context: Optional[str]  # test-failure output fed into the next coding pass
     verification_passed: bool
     retry_count: int
     max_retries: int
