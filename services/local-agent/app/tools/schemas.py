@@ -21,6 +21,19 @@ class WriteFileInput(BaseModel):
     create_parents: bool = False
 
 
+class ApplyEditInput(BaseModel):
+    path: str
+    content: str
+    dry_run: bool = False
+    create_parents: bool = True
+
+
+class RevertFileInput(BaseModel):
+    path: str
+    original_content: Optional[str] = None
+    was_created: bool = False
+
+
 class ExecuteCommandInput(BaseModel):
     command: str
     cwd: Optional[str] = None

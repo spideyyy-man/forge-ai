@@ -91,6 +91,8 @@ class ForgeAgent:
         self.tool_registry.register("list_directory", self.fs_ops.list_directory)
         self.tool_registry.register("read_file", self.fs_ops.read_file)
         self.tool_registry.register("write_file", self.fs_ops.write_file)
+        self.tool_registry.register("apply_edit", self.fs_ops.apply_edit)
+        self.tool_registry.register("revert_file", self.fs_ops.revert_file)
         self.tool_registry.register("create_file", self.fs_ops.create_file)
         self.tool_registry.register("create_directory", self.fs_ops.create_directory)
         self.tool_registry.register("rename_file", self.fs_ops.rename_file)
@@ -110,6 +112,7 @@ class ForgeAgent:
         self.tool_registry.register("git_checkout", self.git_ops.checkout)
         self.tool_registry.register("git_commit", self.git_ops.commit)
         self.tool_registry.register("git_create_checkpoint", self.git_ops.create_checkpoint)
+        self.tool_registry.register("git_rollback", self.git_ops.rollback)
 
         # Search tools
         self.tool_registry.register("search_text", self.text_search.search)

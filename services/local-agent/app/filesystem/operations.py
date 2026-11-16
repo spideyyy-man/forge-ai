@@ -1,6 +1,7 @@
 """Filesystem operations with security validation."""
 import os
 import stat
+import difflib
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -13,6 +14,26 @@ logger = logging.getLogger(__name__)
 
 # Directories to skip during listing
 IGNORED_DIRS = {".git", "node_modules", "__pycache__", ".next", "venv", ".venv", "dist", "build", ".tox", ".pytest_cache"}
+
+
+def compute_unified_diff(old: str, new: str, path: str) -> Dict[str, Any]:
+    """Build a unified diff between two text blobs.
+
+    Returns the diff text plus added/removed line counts so a caller can show a
+    human-readable preview before any bytes are written to disk.
+    """
+    old_lines = old.splitlines(keepends=True)
+    new_lines = new.splitlines(keepends=True)
+    diff_lines = list(
+        difflib.unified_diff(old_lines, new_lines, fromfile=f"a/{path}", tofile=f"b/{path}")
+    )
+    additions = sum(1 for ln in diff_lines if ln.startswith("+") and not ln.startswith("+++"))
+    deletions = sum(1 for ln in diff_lines if ln.startswith("-") and not ln.startswith("---"))
+    return {
+        "diff": "".join(diff_lines),
+        "additions": additions,
+        "deletions": deletions,
+    }
 
 
 class FileSystemOperations:
@@ -121,6 +142,114 @@ class FileSystemOperations:
             p.write_text(content, encoding="utf-8")
             self.audit.log("write_file", path, True, {"existed": existed, "size": len(content)})
             return {"success": True, "path": path, "size": len(content), "created": not existed}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def apply_edit(
+        self,
+        path: str,
+        content: str,
+        dry_run: bool = False,
+        create_parents: bool = True,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """Apply an edit that replaces a file's full contents, returning a unified diff.
+
+        This is the approval-gated write primitive used by the engineering loop:
+        - With ``dry_run=True`` it computes the diff against the current file WITHOUT
+          writing, so the change can be shown to the user for approval first.
+        - With ``dry_run=False`` it writes and returns the same diff, plus the previous
+          contents (``old_content``) so the caller can keep an undo buffer.
+
+        Protected files (.env, keys, ...) are refused, and the path must resolve inside
+        an approved workspace root — both enforced here, not by the model.
+        """
+        # Check protected patterns first so a blocked edit returns a clean error for the
+        # approval UI rather than raising out of path containment validation.
+        if self.validator.is_protected(path):
+            return {"success": False, "error": f"Protected file: {path}"}
+        self.validator.validate(path)
+
+        p = Path(path)
+        existed = p.exists()
+        if existed and not p.is_file():
+            return {"success": False, "error": f"Not a file: {path}"}
+
+        old_content = ""
+        if existed:
+            size = p.stat().st_size
+            if size > self.max_file_size:
+                return {"success": False, "error": f"File too large to edit: {size} bytes (max: {self.max_file_size})"}
+            try:
+                old_content = p.read_text(encoding="utf-8", errors="replace")
+            except Exception as e:
+                return {"success": False, "error": f"Could not read existing file: {e}"}
+
+        diff_info = compute_unified_diff(old_content, content, path)
+        result = {
+            "success": True,
+            "path": path,
+            "dry_run": dry_run,
+            "created": not existed,
+            "old_content": old_content,
+            "unchanged": old_content == content,
+            **diff_info,
+        }
+
+        if dry_run:
+            return result
+
+        if create_parents:
+            p.parent.mkdir(parents=True, exist_ok=True)
+        if not p.parent.exists():
+            return {"success": False, "error": f"Parent directory does not exist: {p.parent}"}
+
+        try:
+            p.write_text(content, encoding="utf-8")
+            self.audit.log("apply_edit", path, True, {"existed": existed, "size": len(content),
+                                                      "additions": diff_info["additions"],
+                                                      "deletions": diff_info["deletions"]})
+            result["size"] = len(content)
+            return result
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def revert_file(
+        self,
+        path: str,
+        original_content: Optional[str] = None,
+        was_created: bool = False,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """Undo a previous ``apply_edit`` using the caller's saved undo buffer.
+
+        - ``was_created=True``: the edit created the file, so reverting deletes it.
+        - otherwise ``original_content`` (captured as ``old_content`` from apply_edit)
+          is written back verbatim.
+        """
+        if self.validator.is_protected(path):
+            return {"success": False, "error": f"Protected file: {path}"}
+        self.validator.validate(path)
+
+        p = Path(path)
+
+        if was_created:
+            if p.exists():
+                try:
+                    p.unlink()
+                except Exception as e:
+                    return {"success": False, "error": str(e)}
+            self.audit.log("revert_file", path, True, {"action": "delete"})
+            return {"success": True, "path": path, "reverted": True, "action": "deleted"}
+
+        if original_content is None:
+            return {"success": False, "error": "No original content provided to revert to"}
+
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(original_content, encoding="utf-8")
+            self.audit.log("revert_file", path, True, {"action": "restore", "size": len(original_content)})
+            return {"success": True, "path": path, "reverted": True, "action": "restored"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 

@@ -133,6 +133,41 @@ class GitOperations:
             return {"success": False, "error": str(e)}
 
     async def create_checkpoint(self, repo_path: str, message: Optional[str] = None, **kwargs) -> Dict[str, Any]:
-        """Create a checkpoint commit."""
-        msg = message or f"[FORGE AI] Checkpoint"
-        return await self.commit(repo_path, msg)
+        """Create a checkpoint commit capturing the current tree.
+
+        Returns the checkpoint commit hash so a later rollback can target it. If the
+        working tree is already clean there is nothing to commit; we still return the
+        current HEAD so the caller has a valid rollback anchor.
+        """
+        self.validator.validate(repo_path)
+        try:
+            repo = self._get_repo(repo_path)
+            if not repo.is_dirty(untracked_files=True):
+                head = repo.head.commit.hexsha if repo.head.is_valid() else None
+                return {"success": True, "hash": head[:8] if head else None, "full_hash": head,
+                        "message": "clean tree; nothing to checkpoint", "created": False}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+        msg = message or "[FORGE AI] Checkpoint"
+        res = await self.commit(repo_path, msg)
+        if res.get("success"):
+            res["created"] = True
+        return res
+
+    async def rollback(self, repo_path: str, ref: str, **kwargs) -> Dict[str, Any]:
+        """Hard-reset the working tree back to a checkpoint ref.
+
+        This is a coarse, destructive safety net: it discards everything after ``ref``.
+        It is intended to target a FORGE-created checkpoint (whose commit already
+        preserved the user's prior work), so restoring it does not erase pre-existing
+        work. Prefer the per-file undo buffer (``revert_file``) for ordinary undo.
+        """
+        self.validator.validate(repo_path)
+        try:
+            repo = self._get_repo(repo_path)
+            repo.git.reset("--hard", ref)
+            self.audit.log("git_rollback", repo_path, True, {"ref": ref})
+            return {"success": True, "repo_path": repo_path, "rolled_back_to": ref}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
