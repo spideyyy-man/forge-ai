@@ -67,6 +67,97 @@ function MarkdownLite({ text }: { text: string }) {
   return <div className="space-y-0.5">{blocks}</div>;
 }
 
+// A pending change the agent wants to make; the user must approve it before it is applied.
+type Proposal = {
+  kind: "edit" | "command" | "commit";
+  path?: string;
+  diff?: string;
+  additions?: number;
+  deletions?: number;
+  created?: boolean;
+  command?: string;
+  cwd?: string;
+  repo_path?: string;
+  message?: string;
+};
+type Approval = { approval_id: string; proposal: Proposal };
+
+// Render a unified diff with +/- line coloring. Dependency-free.
+function DiffView({ diff }: { diff: string }) {
+  const lines = diff.split("\n");
+  return (
+    <pre className="text-[11px] font-mono leading-relaxed max-h-72 overflow-auto rounded-lg bg-black/50 border border-border p-2.5">
+      {lines.map((ln, i) => {
+        let cls = "text-slate-400";
+        if (ln.startsWith("+") && !ln.startsWith("+++")) cls = "text-emerald-300 bg-emerald-500/10";
+        else if (ln.startsWith("-") && !ln.startsWith("---")) cls = "text-rose-300 bg-rose-500/10";
+        else if (ln.startsWith("@@")) cls = "text-cyan-300";
+        else if (ln.startsWith("+++") || ln.startsWith("---")) cls = "text-slate-500";
+        return (
+          <div key={i} className={`${cls} whitespace-pre-wrap break-all px-1`}>
+            {ln || " "}
+          </div>
+        );
+      })}
+    </pre>
+  );
+}
+
+// The approval card shown when the agent proposes a write/command/commit.
+function ApprovalCard({ approval, onDecide }: { approval: Approval; onDecide: (approved: boolean) => void }) {
+  const p = approval.proposal;
+  const title =
+    p.kind === "edit"
+      ? `${p.created ? "Create" : "Edit"} ${p.path}`
+      : p.kind === "command"
+      ? "Run command"
+      : "Commit changes";
+  return (
+    <div className="animate-in rounded-xl border border-ember/40 bg-ember/5 p-3 space-y-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <Sparkles className="h-4 w-4 text-ember shrink-0" />
+          <span className="text-xs font-semibold text-white truncate" title={title}>{title}</span>
+        </div>
+        {p.kind === "edit" && (
+          <span className="text-[10px] font-mono shrink-0">
+            <span className="text-emerald-300">+{p.additions ?? 0}</span>{" "}
+            <span className="text-rose-300">−{p.deletions ?? 0}</span>
+          </span>
+        )}
+      </div>
+
+      {p.kind === "edit" && p.diff && <DiffView diff={p.diff} />}
+      {p.kind === "command" && (
+        <pre className="text-[11px] font-mono rounded-lg bg-black/50 border border-border p-2.5 text-amber-200 whitespace-pre-wrap break-all">
+          $ {p.command}
+          {p.cwd ? `\n(in ${p.cwd})` : ""}
+        </pre>
+      )}
+      {p.kind === "commit" && (
+        <pre className="text-[11px] font-mono rounded-lg bg-black/50 border border-border p-2.5 text-slate-200 whitespace-pre-wrap break-all">
+          {p.message}
+        </pre>
+      )}
+
+      <div className="flex items-center justify-end gap-2 pt-0.5">
+        <button
+          onClick={() => onDecide(false)}
+          className="text-[11px] px-3 py-1.5 rounded-lg border border-border text-slate-300 hover:bg-surface transition"
+        >
+          Reject
+        </button>
+        <button
+          onClick={() => onDecide(true)}
+          className="text-[11px] px-3 py-1.5 rounded-lg bg-ember/20 border border-ember/40 text-ember-hot font-medium hover:bg-ember/30 transition"
+        >
+          {p.kind === "edit" ? "Approve & apply" : "Approve"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const MODES = [
   { id: "autonomous", label: "Autonomous", hint: "Plan, edit, and verify on its own" },
   { id: "plan_only", label: "Plan only", hint: "Propose a plan, make no changes" },
@@ -91,6 +182,8 @@ export default function AgentStudioPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [needsProvider, setNeedsProvider] = useState(false);
+  const [approval, setApproval] = useState<Approval | null>(null);
+  const [activity, setActivity] = useState<string | null>(null);
 
   const user = useAuthStore((s) => s.user);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -98,18 +191,48 @@ export default function AgentStudioPage() {
   const convRef = useRef<string | null>(null); // conversation currently streaming
   const streamRef = useRef<string>(""); // accumulated streamed text
 
-  // Connect the user WebSocket and render streamed tokens live as they arrive.
+  const decideApproval = (approvalId: string, approved: boolean) => {
+    wsClient.send({ type: "approval_decision", approval_id: approvalId, approved });
+    setApproval((cur) => (cur?.approval_id === approvalId ? null : cur));
+    setActivity(approved ? "Applying change…" : "Change rejected — adapting…");
+  };
+
+  // Short human label for a live tool event.
+  const toolLabel = (tool: string, args: any): string => {
+    const name = args?.path || args?.command || args?.query || args?.repo_path || "";
+    const verbs: Record<string, string> = {
+      read_file: "Reading", list_directory: "Listing", search_text: "Searching",
+      git_status: "Checking git status", git_diff: "Reading git diff",
+      apply_edit: "Proposing an edit to", execute_command: "Proposing command",
+      git_commit: "Proposing commit",
+    };
+    return `${verbs[tool] || tool} ${name}`.trim();
+  };
+
+  // Connect the user WebSocket: render streamed tokens, tool activity, and approval prompts.
   useEffect(() => {
     if (!user?.id) return;
     wsClient.connect(user.id);
     const unsub = wsClient.subscribe((msg: any) => {
-      if (msg?.type === "agent_delta" && msg.conversation_id && msg.conversation_id === convRef.current) {
+      const forThisConv = msg?.conversation_id && msg.conversation_id === convRef.current;
+
+      if (msg?.type === "agent_delta" && forThisConv) {
         streamRef.current += msg.delta || "";
         const text = streamRef.current;
         setMessages((prev) => [
           ...prev.filter((m) => m.id !== "pending"),
           { id: "pending", role: "assistant", content: text, pending: false },
         ]);
+      } else if (msg?.type === "approval_request" && forThisConv) {
+        setApproval({ approval_id: msg.approval_id, proposal: msg.proposal });
+        setActivity(null);
+      } else if (msg?.type === "agent_event" && forThisConv) {
+        if (msg.event_type === "tool_call") {
+          setActivity(toolLabel(msg.tool, msg.arguments));
+        } else if (msg.event_type === "completion") {
+          setActivity(null);
+          setApproval(null);
+        }
       }
     });
     return () => {
@@ -203,6 +326,7 @@ export default function AgentStudioPage() {
       setError(err.message || "Could not reach the agent. Is the backend running and a model provider configured?");
     } finally {
       setSending(false);
+      setActivity(null);
       textareaRef.current?.focus();
     }
   };
@@ -362,7 +486,7 @@ export default function AgentStudioPage() {
               >
                 {m.pending ? (
                   <span className="flex items-center gap-2 text-muted-foreground">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Planning…
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> {activity || "Planning…"}
                   </span>
                 ) : m.role === "assistant" ? (
                   <MarkdownLite text={m.content} />
@@ -372,6 +496,13 @@ export default function AgentStudioPage() {
               </div>
             </div>
           ))
+        )}
+
+        {/* Approval prompt: the agent is blocked waiting for this decision. */}
+        {approval && (
+          <div className="pl-10">
+            <ApprovalCard approval={approval} onDecide={(ok) => decideApproval(approval.approval_id, ok)} />
+          </div>
         )}
       </div>
 
