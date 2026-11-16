@@ -19,6 +19,7 @@ class AgentExecutionState(TypedDict):
     messages: Annotated[List[Dict[str, Any]], operator.add]
     modified_files: Annotated[List[str], operator.add]
     executed_commands: Annotated[List[Dict[str, Any]], operator.add]
+    undo_buffer: Optional[List[Dict[str, Any]]]  # per-file {path, old_content, was_created} for rollback
     diagnostics: Optional[Dict[str, Any]]
     error: Optional[str]
     verification_passed: bool

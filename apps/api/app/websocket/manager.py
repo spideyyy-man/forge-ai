@@ -1,6 +1,8 @@
 """WebSocket connection manager."""
+import asyncio
+import uuid
 from fastapi import WebSocket
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 import logging
 import json
 from datetime import datetime, timezone
@@ -15,6 +17,8 @@ class ConnectionManager:
         self.user_connections: Dict[str, WebSocket] = {}
         self.device_connections: Dict[str, WebSocket] = {}
         self.pending_requests: Dict[str, dict] = {}
+        # approval_id -> {"future": Future} awaiting a user approve/reject decision.
+        self.pending_approvals: Dict[str, dict] = {}
 
     async def connect_user(self, websocket: WebSocket, user_id: str):
         """Accept and register a user WebSocket connection."""
@@ -69,6 +73,53 @@ class ConnectionManager:
         """Broadcast a message to all devices of a user."""
         # Broadcast to devices mapped to user if tracked
         pass
+
+    async def request_user_approval(
+        self,
+        user_id: str,
+        conversation_id: str,
+        proposal: Dict[str, Any],
+        timeout_seconds: int = 300,
+    ) -> bool:
+        """Send an approval request to the user and await their decision.
+
+        Returns True if approved, False if rejected, the user is not connected, or the
+        request times out. Fail-closed: a missing/late decision never silently applies a
+        change. The frontend resolves this by sending an ``approval_decision`` message.
+        """
+        if user_id not in self.user_connections:
+            logger.info("Approval requested but user %s not connected; auto-rejecting.", user_id)
+            return False
+
+        approval_id = str(uuid.uuid4())
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future = loop.create_future()
+        self.pending_approvals[approval_id] = {"future": future, "user_id": user_id}
+
+        await self.send_to_user(user_id, {
+            "type": "approval_request",
+            "approval_id": approval_id,
+            "conversation_id": conversation_id,
+            "proposal": proposal,
+        })
+
+        try:
+            return bool(await asyncio.wait_for(future, timeout=timeout_seconds))
+        except asyncio.TimeoutError:
+            logger.info("Approval %s timed out; auto-rejecting.", approval_id)
+            return False
+        finally:
+            self.pending_approvals.pop(approval_id, None)
+
+    def resolve_approval(self, approval_id: str, approved: bool) -> bool:
+        """Resolve a pending approval future from a user's decision. Returns True if matched."""
+        info = self.pending_approvals.get(approval_id)
+        if not info:
+            return False
+        future = info.get("future")
+        if future and not future.done():
+            future.set_result(bool(approved))
+        return True
 
 
 # Global singleton

@@ -136,6 +136,7 @@ async def run_agent_workflow(
             "messages": [],
             "modified_files": [],
             "executed_commands": [],
+            "undo_buffer": [],
             "diagnostics": None,
             "error": None,
             "verification_passed": False,
@@ -166,6 +167,9 @@ async def run_agent_workflow(
                 "conversation_id": str(conversation_id),
                 "content": reply_text,
                 "plan": final_state.get("plan"),
+                "modified_files": final_state.get("modified_files", []),
+                "executed_commands": final_state.get("executed_commands", []),
+                "verification_passed": final_state.get("verification_passed"),
             })
 
         except Exception as e:

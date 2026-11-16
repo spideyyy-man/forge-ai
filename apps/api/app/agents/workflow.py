@@ -55,76 +55,70 @@ async def inspection_node(state: AgentExecutionState) -> Dict[str, Any]:
 
 
 async def coding_node(state: AgentExecutionState) -> Dict[str, Any]:
-    """Generate and apply code modifications with LLM completions."""
-    device_id = state.get("device_id")
-    description = state["description"]
-    repo_context = state.get("repo_context") or ""
-
-    # Prompt caching: the big, STABLE content (instructions + repo snapshot) goes first in
-    # the system message so it's byte-identical across turns in the same workspace. Providers
-    # (OpenAI, Gemini 2.5, DeepSeek, Anthropic) then cache that prefix and only bill/process
-    # the small variable task below — cutting repeat-call token cost ~75-90%.
-    instructions = (
-        "You are FORGE AI, a senior autonomous software engineer. You are given a snapshot "
-        "of the user's ACTUAL repository below (directory structure and key files such as "
-        "READMEs and manifests). Ground every answer in that snapshot: reference real file "
-        "names, detected languages/frameworks, and real structure. "
-        "NEVER ask the user to paste or describe information that is already visible in the "
-        "snapshot — read it yourself. Be concrete and actionable: give specific, prioritized "
-        "suggestions, not generic checklists. If the snapshot is empty, briefly tell the user "
-        "to open a folder in the Workspace tab (and, for live file edits, connect the local "
-        "agent) — do not ask them to type out a long manual description."
-    )
-    if repo_context:
-        stable = f"{instructions}\n\nActive workspace: {state.get('workspace_path')}\n\n=== REPOSITORY SNAPSHOT ===\n{repo_context}\n=== END SNAPSHOT ==="
-    else:
-        stable = f"{instructions}\n\nActive workspace: {state.get('workspace_path')}\n(No repository snapshot is available — the workspace folder could not be read.)"
-
-    messages = [
-        {"role": "system", "content": stable},      # large, stable → cached prefix
-        {"role": "user", "content": f"Task: {description}"},  # small, variable → not cached
-    ]
-
-    # Stream the completion token-by-token to the user's WebSocket as it is generated.
+    """Run the bounded tool-calling engineering loop (inspect -> propose -> approve -> apply)."""
     from app.websocket.manager import connection_manager
+    from app.providers.registry import ModelCapability
+    from app.agents.engineering_loop import run_engineering_loop
 
-    user_id = state.get("user_id")
-    conv_id = state.get("task_id")
-
-    async def on_delta(chunk: str):
-        try:
-            await connection_manager.send_to_user(str(user_id), {
-                "type": "agent_delta",
-                "conversation_id": str(conv_id),
-                "delta": chunk,
-            })
-        except Exception:
-            pass  # streaming is best-effort; the final message is still saved to the DB
+    device_id = state.get("device_id")
+    user_id = str(state.get("user_id"))
+    conv_id = str(state.get("task_id"))
+    workspace_path = state.get("workspace_path", ".")
 
     # Discovery-ranked candidate models (registry ∩ live-available + free extras).
-    from app.providers.registry import ModelCapability
     candidates = [
         ModelCapability(model_id=c["model_id"], provider=c["provider"], litellm_id=c["litellm_id"], api_base=c.get("api_base"))
         for c in (state.get("model_candidates") or [])
     ] or None
+    configured_keys = state.get("configured_keys") or {}
 
-    completion = await model_router.stream_completion(
-        messages=messages,
-        policy=RouterPolicy.QUALITY,
-        configured_keys=state.get("configured_keys") or {},
-        on_delta=on_delta,
-        candidates=candidates,
+    async def complete(messages, tools):
+        """Call the router (with tools when available) and surface the message object."""
+        res = await model_router.execute_completion(
+            messages=messages,
+            tools=tools,
+            policy=RouterPolicy.QUALITY,
+            configured_keys=configured_keys,
+            candidates=candidates,
+        )
+        if not res.get("success"):
+            return {"success": False, "error": res.get("error")}
+        try:
+            message = res["response"].choices[0].message
+        except (KeyError, AttributeError, IndexError) as e:
+            return {"success": False, "error": f"Malformed model response: {e}"}
+        return {"success": True, "message": message, "model_used": res.get("model_used")}
+
+    async def exec_tool(name, arguments):
+        return await execute_remote_tool(device_id, name, arguments, user_id=user_id)
+
+    async def request_approval(proposal):
+        return await connection_manager.request_user_approval(user_id, conv_id, proposal)
+
+    async def emit(event):
+        try:
+            await connection_manager.send_to_user(user_id, {**event, "conversation_id": conv_id})
+        except Exception:
+            pass  # events are best-effort
+
+    result = await run_engineering_loop(
+        description=state["description"],
+        repo_context=state.get("repo_context") or "",
+        workspace_path=workspace_path,
+        complete=complete,
+        exec_tool=exec_tool,
+        request_approval=request_approval,
+        emit=emit,
+        device_connected=bool(device_id),
     )
-
-    if completion.get("success"):
-        response_text = completion.get("text") or ""
-    else:
-        response_text = f"Fallback exhausted: {completion.get('error')}"
 
     return {
         "status": "VERIFYING",
         "current_step_index": 2,
-        "messages": [{"role": "assistant", "content": response_text}],
+        "messages": [{"role": "assistant", "content": result["text"]}],
+        "modified_files": result.get("modified_files", []),
+        "executed_commands": result.get("executed_commands", []),
+        "undo_buffer": result.get("undo", []),
     }
 
 

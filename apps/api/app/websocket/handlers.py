@@ -78,5 +78,12 @@ async def handle_user_message(data: dict, user_id: str):
     elif msg_type == "subscribe":
         logger.info(f"User {user_id} subscribing to: {data.get('channel')}")
 
+    elif msg_type == "approval_decision":
+        approval_id = data.get("approval_id")
+        approved = bool(data.get("approved"))
+        matched = connection_manager.resolve_approval(approval_id, approved)
+        if not matched:
+            logger.info(f"Approval decision for unknown/expired id {approval_id} from user {user_id}")
+
     else:
         logger.warning(f"Unknown user message type: {msg_type}")
