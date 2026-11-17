@@ -129,6 +129,7 @@ class ForgeAgent:
         self.tool_registry.register("inspect_project_architecture", lambda root_path: ProjectDiscovery.inspect_repository(root_path))
         self.tool_registry.register("index_workspace", lambda root_path, force=False: self.indexer.index_workspace(root_path, force_reindex=force))
         self.tool_registry.register("search_symbols", lambda query, limit=50: self.indexer.search_symbols(query, limit))
+        self.tool_registry.register("index_stats", lambda: self.indexer.index_stats())
 
     async def _handle_message(self, message: dict):
         """Handle incoming WebSocket messages."""

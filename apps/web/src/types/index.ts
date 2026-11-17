@@ -50,6 +50,29 @@ export interface RunRecord {
   completed_at?: string | null;
 }
 
+export interface SymbolHit {
+  name: string;
+  kind: string;
+  file_path: string;
+  line: number;
+  signature?: string;
+}
+
+export interface IndexStats {
+  files: number;
+  symbols: number;
+  total_lines: number;
+  languages: { language: string; files: number }[];
+  symbol_kinds: { kind: string; count: number }[];
+}
+
+export interface IndexStatus {
+  connected: boolean;
+  workspace_path?: string | null;
+  stats?: IndexStats | null;
+  error?: string;
+}
+
 export type ApprovalMode = "auto" | "approve";
 
 export interface ApprovalPolicyResponse {

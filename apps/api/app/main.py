@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.core.database import engine, Base, get_db
 from app.core.security import verify_device_token
 from app.models.device import Device, DeviceStatus
-from app.api import auth, devices, workspaces, projects, providers, conversations, tasks, health, settings as settings_routes
+from app.api import auth, devices, workspaces, projects, providers, conversations, tasks, health, settings as settings_routes, intelligence
 from app.websocket.manager import connection_manager
 from app.websocket.handlers import handle_websocket_message
 
@@ -108,6 +108,7 @@ app.include_router(providers.router, prefix="/api/providers", tags=["Providers"]
 app.include_router(conversations.router, prefix="/api/conversations", tags=["Conversations"])
 app.include_router(tasks.router, prefix="/api/tasks", tags=["Tasks"])
 app.include_router(settings_routes.router, prefix="/api/settings", tags=["Settings"])
+app.include_router(intelligence.router, prefix="/api/intelligence", tags=["Intelligence"])
 
 
 # WebSocket endpoints

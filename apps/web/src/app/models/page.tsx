@@ -90,6 +90,8 @@ export default function ModelsPage() {
   const acctsFor = (type: string) => byType.get(type) || [];
 
   const handleDelete = async (id: string) => {
+    // Deleting a key is destructive and can't be undone — confirm first.
+    if (!window.confirm("Remove this API key? The agent can no longer use this provider until you add a key again.")) return;
     try {
       await api.deleteProvider(id);
       await refresh();

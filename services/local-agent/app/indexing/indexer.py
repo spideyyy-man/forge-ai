@@ -125,6 +125,28 @@ class CodebaseIndexer:
             "architecture": discovery,
         }
 
+    def index_stats(self) -> Dict[str, Any]:
+        """Return current index counts without re-walking the filesystem."""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            files = c.execute("SELECT COUNT(*) FROM file_index").fetchone()[0]
+            symbols = c.execute("SELECT COUNT(*) FROM symbol_index").fetchone()[0]
+            total_lines = c.execute("SELECT COALESCE(SUM(line_count), 0) FROM file_index").fetchone()[0]
+            langs = c.execute(
+                "SELECT language, COUNT(*) FROM file_index GROUP BY language ORDER BY COUNT(*) DESC"
+            ).fetchall()
+            kinds = c.execute(
+                "SELECT kind, COUNT(*) FROM symbol_index GROUP BY kind ORDER BY COUNT(*) DESC"
+            ).fetchall()
+        return {
+            "success": True,
+            "files": files,
+            "symbols": symbols,
+            "total_lines": total_lines,
+            "languages": [{"language": lang, "files": n} for lang, n in langs],
+            "symbol_kinds": [{"kind": k, "count": n} for k, n in kinds],
+        }
+
     def search_symbols(self, query: str, limit: int = 50) -> List[Dict[str, Any]]:
         """Search symbol index across codebase."""
         with sqlite3.connect(self.db_path) as conn:

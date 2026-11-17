@@ -1,4 +1,4 @@
-import { User, Device, Workspace, Project, ProviderAccount, ModelEntry, Conversation, Message, AgentTask, RunRecord, ApprovalPolicyResponse } from "@/types";
+import { User, Device, Workspace, Project, ProviderAccount, ModelEntry, Conversation, Message, AgentTask, RunRecord, ApprovalPolicyResponse, IndexStatus, IndexStats, SymbolHit } from "@/types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
@@ -178,6 +178,19 @@ class ApiClient {
 
   async getConversationRun(conversationId: string): Promise<RunRecord> {
     return this.request(`/conversations/${conversationId}/run`);
+  }
+
+  // Code intelligence
+  async getIndexStatus(): Promise<IndexStatus> {
+    return this.request(`/intelligence/status`);
+  }
+
+  async reindexWorkspace(): Promise<IndexStats & { success: boolean }> {
+    return this.request(`/intelligence/index`, { method: "POST" });
+  }
+
+  async searchSymbols(q: string): Promise<{ results: SymbolHit[] }> {
+    return this.request(`/intelligence/search?q=${encodeURIComponent(q)}`);
   }
 
   // Settings
