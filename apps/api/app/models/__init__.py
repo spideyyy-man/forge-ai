@@ -1,5 +1,6 @@
 """SQLAlchemy models export package."""
 
+from app.models.approval import ApprovalPolicy
 from app.models.base import BaseModel, TimestampMixin
 from app.models.conversation import Conversation, ConversationStatus, Message, MessageRole
 from app.models.device import Device, DeviceStatus, DeviceType
@@ -34,4 +35,5 @@ __all__ = [
     "TaskComplexity",
     "AgentRun",
     "AgentRunStatus",
+    "ApprovalPolicy",
 ]

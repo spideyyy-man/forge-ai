@@ -131,6 +131,7 @@ async def coding_node(state: AgentExecutionState) -> Dict[str, Any]:
         emit=emit,
         device_connected=bool(device_id),
         should_cancel=lambda: connection_manager.is_cancelled(conv_id),
+        policy=state.get("approval_policy"),
     )
 
     cancelled = bool(result.get("cancelled"))

@@ -72,6 +72,18 @@ async def run_agent_workflow(
                 logger.warning("Could not load project privacy mode: %s", e)
         local_only = privacy_mode == "LOCAL_ONLY"
 
+        # Load the user's approval policy (op-class -> auto|approve). Enforced in the loop.
+        from app.agents.approval_policy import normalize_policy
+        approval_policy = normalize_policy(None)
+        try:
+            from app.models.approval import ApprovalPolicy
+            pol_res = await db.execute(select(ApprovalPolicy).where(ApprovalPolicy.user_id == user_uuid))
+            pol_row = pol_res.scalar_one_or_none()
+            if pol_row is not None:
+                approval_policy = normalize_policy(pol_row.modes)
+        except Exception as e:
+            logger.warning("Could not load approval policy: %s", e)
+
         # Load the user's BYOK provider keys (decrypted) so the agent can call their
         # models. The model registry names providers slightly differently from the
         # ProviderType enum, so map DB type -> registry provider name.
@@ -144,6 +156,7 @@ async def run_agent_workflow(
             "workspace_path": workspace_path,
             "configured_keys": configured_keys,
             "privacy_mode": privacy_mode,
+            "approval_policy": approval_policy,
             "repo_context": repo_context,
             "model_candidates": model_candidates,
             "description": prompt,

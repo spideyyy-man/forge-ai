@@ -221,6 +221,7 @@ async def run_engineering_loop(
     device_connected: bool,
     max_steps: int = 12,
     should_cancel: Optional[CancelFn] = None,
+    policy: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """Run the bounded tool-calling loop. Returns a result summary dict.
 
@@ -241,6 +242,9 @@ async def run_engineering_loop(
         {"role": "system", "content": stable},
         {"role": "user", "content": f"Task: {description}"},
     ]
+
+    from app.agents import approval_policy
+    policy = approval_policy.normalize_policy(policy)
 
     modified_files: List[str] = []
     executed_commands: List[Dict[str, Any]] = []
@@ -293,13 +297,20 @@ async def run_engineering_loop(
             call_id = tc.get("id")
             await emit({"type": "agent_event", "event_type": "tool_call", "tool": name, "arguments": args})
 
+            mode = approval_policy.effective_mode(name, args, policy)
             if not device_connected:
                 result = {"success": False, "error": "No local agent connected; cannot run tools."}
             elif name in READ_TOOLS:
-                result = await exec_tool(name, args)
+                if mode == "auto":
+                    result = await exec_tool(name, args)
+                else:
+                    approved = await request_approval({"kind": "read", "tool": name, "args": args})
+                    result = (await exec_tool(name, args) if approved
+                              else {"success": False, "rejected": True, "error": "User declined the read."})
             elif name in WRITE_TOOLS:
                 result = await _handle_write_tool(name, args, exec_tool, request_approval, emit,
-                                                  modified_files, executed_commands, undo)
+                                                  modified_files, executed_commands, undo,
+                                                  auto=(mode == "auto"))
             else:
                 result = {"success": False, "error": f"Unknown tool: {name}"}
 
@@ -330,10 +341,14 @@ async def _handle_write_tool(
     modified_files: List[str],
     executed_commands: List[Dict[str, Any]],
     undo: List[Dict[str, Any]],
+    auto: bool = False,
 ) -> Dict[str, Any]:
-    """Run an approval-gated tool: build a preview, ask the user, then apply or reject."""
+    """Run a state-changing tool. When ``auto`` (the user's policy allows it) the
+    approval prompt is skipped; otherwise a preview is sent and the user must approve.
+    The approval decision is made here in trusted code, never by the model."""
     if name == "apply_edit":
-        # Dry-run first (no write) to compute the diff shown for approval.
+        # Dry-run first (no write) to compute the diff — shown for approval, or emitted
+        # for visibility when auto-applied.
         preview = await exec_tool("apply_edit", {**args, "dry_run": True})
         if not preview.get("success"):
             return preview
@@ -347,8 +362,9 @@ async def _handle_write_tool(
             "deletions": preview.get("deletions"),
             "created": preview.get("created"),
         }
-        approved = await request_approval(proposal)
-        if not approved:
+        if auto:
+            await emit({"type": "agent_event", "event_type": "auto_applied", **proposal})
+        elif not await request_approval(proposal):
             return {"success": False, "rejected": True, "error": "User rejected the edit."}
         applied = await exec_tool("apply_edit", {**args, "dry_run": False})
         if applied.get("success"):
@@ -362,8 +378,9 @@ async def _handle_write_tool(
 
     if name == "execute_command":
         proposal = {"kind": "command", "command": args.get("command"), "cwd": args.get("cwd")}
-        approved = await request_approval(proposal)
-        if not approved:
+        if auto:
+            await emit({"type": "agent_event", "event_type": "auto_applied", **proposal})
+        elif not await request_approval(proposal):
             return {"success": False, "rejected": True, "error": "User rejected the command."}
         result = await exec_tool("execute_command", args)
         executed_commands.append({"command": args.get("command"), "ok": bool(result.get("success"))})
@@ -371,8 +388,9 @@ async def _handle_write_tool(
 
     if name == "git_commit":
         proposal = {"kind": "commit", "repo_path": args.get("repo_path"), "message": args.get("message")}
-        approved = await request_approval(proposal)
-        if not approved:
+        if auto:
+            await emit({"type": "agent_event", "event_type": "auto_applied", **proposal})
+        elif not await request_approval(proposal):
             return {"success": False, "rejected": True, "error": "User rejected the commit."}
         return await exec_tool("git_commit", args)
 

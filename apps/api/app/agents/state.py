@@ -11,6 +11,7 @@ class AgentExecutionState(TypedDict):
     workspace_path: str
     configured_keys: Optional[Dict[str, Any]]  # provider -> list[str] of keys (rotation)
     privacy_mode: Optional[str]  # CLOUD_ASSISTED | LOCAL_ONLY (enforced outside the model)
+    approval_policy: Optional[Dict[str, str]]  # op-class -> auto|approve (enforced in the loop)
     repo_context: Optional[str]
     model_candidates: Optional[List[Dict[str, str]]]
     description: str
