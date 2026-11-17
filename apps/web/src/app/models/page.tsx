@@ -112,7 +112,11 @@ export default function ModelsPage() {
   };
 
   const handleSave = async () => {
-    if (!configuring || !apiKey.trim()) return;
+    if (!configuring) return;
+    if (!apiKey.trim()) {
+      setFeedback({ type: "err", msg: "Enter an API key first." });
+      return;
+    }
     if (configuring.custom && !baseUrl.trim()) {
       setFeedback({ type: "err", msg: "Enter the endpoint base URL (e.g. http://localhost:8080/v1)." });
       return;
