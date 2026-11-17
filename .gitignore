@@ -56,6 +56,7 @@ id_ed25519
 # Local agent state
 forge-agent-state/
 .forge-local/
+forge-audit.jsonl
 
 # Claude Code local settings (personal)
 .claude/settings.local.json
