@@ -64,7 +64,14 @@ async def pair_device(
     device = result.scalar_one_or_none()
 
     if not device:
-        raise HTTPException(status_code=404, detail="Invalid pairing code or device")
+        # Distinguish "already paired" from "bad code" so the user isn't stuck on a
+        # confusing 404 after a successful first pair.
+        existing = (
+            await db.execute(select(Device).where(Device.id == data.device_id))
+        ).scalar_one_or_none()
+        if existing is not None and str(getattr(existing.status, "value", existing.status)).upper() == "ACTIVE":
+            raise HTTPException(status_code=409, detail="Device is already paired. Reconnect with the saved credentials (run the agent with no --pair).")
+        raise HTTPException(status_code=404, detail="Invalid or expired pairing code.")
 
     expires_at = device.pairing_code_expires_at
     if expires_at is not None:

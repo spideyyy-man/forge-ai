@@ -32,6 +32,20 @@ if (-not (Test-Path $py)) {
     $py = "python"
 }
 
+# Preflight: confirm the agent's Python dependencies import, so pairing doesn't fail
+# later with a cryptic ImportError (common when falling back to a bare python).
+$depCheck = & $py -c "import websockets, aiohttp, cryptography" 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "The local agent's Python dependencies are missing or broken:" -ForegroundColor Red
+    Write-Host "  $depCheck" -ForegroundColor DarkYellow
+    Write-Host "Set up the agent environment, then retry:" -ForegroundColor Yellow
+    Write-Host "  cd `"$agentDir`"" -ForegroundColor Gray
+    Write-Host "  python -m venv venv" -ForegroundColor Gray
+    Write-Host "  .\venv\Scripts\python.exe -m pip install -r requirements.txt" -ForegroundColor Gray
+    Write-Host "(or run scripts\setup.ps1 from the repo root)" -ForegroundColor Gray
+    exit 1
+}
+
 $agentArgs = @("run.py")
 if ($PairingCode) { $agentArgs += @("--pair", $PairingCode) }
 if ($DeviceId)    { $agentArgs += @("--device-id", $DeviceId) }
