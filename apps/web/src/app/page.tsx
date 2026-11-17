@@ -83,14 +83,27 @@ export default function DashboardPage() {
           </div>
         </div>
         <div className="relative flex items-center gap-2.5">
-          <Button
-            size="sm"
-            onClick={() => setIsPairingDialogOpen(true)}
-            className="text-xs gap-1.5 shadow-indigo-600/30"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Connect Agent
-          </Button>
+          {isAgentActive ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setIsPairingDialogOpen(true)}
+              className="text-xs gap-1.5 border-emerald-500/30 text-emerald-300"
+              title="Manage paired devices"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              {activeDevice?.name || "Agent connected"}
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              onClick={() => setIsPairingDialogOpen(true)}
+              className="text-xs gap-1.5 shadow-indigo-600/30"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Connect Agent
+            </Button>
+          )}
           <Link href="/agent-studio">
             <Button variant="secondary" size="sm" className="text-xs gap-1.5 border-[#2b2b48]">
               <Play className="h-3.5 w-3.5 text-indigo-400" />
