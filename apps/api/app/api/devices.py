@@ -12,8 +12,16 @@ from app.core.security import generate_device_token, hash_device_token, hash_pas
 from app.models.user import User
 from app.models.device import Device
 from app.schemas.device import DeviceRegister, DevicePair, DeviceResponse, DeviceStatusUpdate
+from app.websocket.manager import connection_manager
 
 router = APIRouter()
+
+
+def _with_presence(device: Device) -> DeviceResponse:
+    """Build a response and stamp the live connection state from the socket map."""
+    resp = DeviceResponse.model_validate(device)
+    resp.is_connected = connection_manager.is_device_connected(str(device.id))
+    return resp
 
 
 @router.post("/register", response_model=DeviceResponse, status_code=status.HTTP_201_CREATED)
@@ -85,7 +93,7 @@ async def list_devices(
 ):
     """List user's devices."""
     result = await db.execute(select(Device).where(Device.user_id == current_user.id))
-    return result.scalars().all()
+    return [_with_presence(d) for d in result.scalars().all()]
 
 
 @router.get("/{device_id}", response_model=DeviceResponse)
@@ -101,7 +109,7 @@ async def get_device(
     device = result.scalar_one_or_none()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    return device
+    return _with_presence(device)
 
 
 @router.patch("/{device_id}", response_model=DeviceResponse)

@@ -29,6 +29,7 @@ async def handle_device_message(data: dict, device_id: str):
 
     if msg_type == "heartbeat":
         logger.debug(f"Heartbeat from device {device_id}")
+        await connection_manager.touch_device(device_id)
 
     elif msg_type == "tool_response":
         correlation_id = data.get("correlation_id")

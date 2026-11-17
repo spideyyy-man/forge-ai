@@ -28,6 +28,10 @@ class DeviceResponse(BaseModel):
     os_info: Optional[Dict[str, Any]] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
+    # Live truth: whether the agent currently holds an open WebSocket. Derived from the
+    # in-memory connection map at response time, not stored — `status` is the persisted
+    # lifecycle (PENDING/ACTIVE/DISCONNECTED/REVOKED), `is_connected` is "right now".
+    is_connected: bool = False
 
     model_config = {"from_attributes": True}
 

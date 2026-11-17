@@ -181,8 +181,8 @@ async def websocket_agent(websocket: WebSocket):
             await handle_websocket_message(data, device_id=device_id)
     except WebSocketDisconnect:
         if device_id:
-            connection_manager.disconnect_device(device_id)
+            await connection_manager.mark_device_disconnected(device_id)
     except Exception as e:
         logger.error(f"WebSocket error for agent: {e}")
         if device_id:
-            connection_manager.disconnect_device(device_id)
+            await connection_manager.mark_device_disconnected(device_id)

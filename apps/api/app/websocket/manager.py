@@ -30,6 +30,7 @@ class ConnectionManager:
         """Register a device WebSocket connection (already accepted)."""
         self.device_connections[device_id] = websocket
         logger.info(f"Device {device_id} connected via WebSocket")
+        await self._persist_device_presence(device_id, connected=True)
 
     def disconnect_user(self, user_id: str):
         """Remove a user connection."""
@@ -37,9 +38,44 @@ class ConnectionManager:
         logger.info(f"User {user_id} disconnected")
 
     def disconnect_device(self, device_id: str):
-        """Remove a device connection."""
+        """Remove a device connection (socket only; see mark_device_disconnected to persist)."""
         self.device_connections.pop(device_id, None)
         logger.info(f"Device {device_id} disconnected")
+
+    async def mark_device_disconnected(self, device_id: str):
+        """Remove the socket and persist DISCONNECTED + last_seen in the DB."""
+        self.disconnect_device(device_id)
+        await self._persist_device_presence(device_id, connected=False)
+
+    async def touch_device(self, device_id: str):
+        """Record a heartbeat: refresh last_seen_at (and reaffirm ACTIVE)."""
+        await self._persist_device_presence(device_id, connected=True)
+
+    async def _persist_device_presence(self, device_id: str, *, connected: bool):
+        """Write live presence to the devices table. Best-effort: never raises into the
+        WebSocket loop. `status` tracks connectivity; REVOKED is never overridden."""
+        # Imported lazily to avoid an import cycle (database/models import late).
+        import uuid as _uuid
+        from datetime import datetime, timezone
+        from sqlalchemy import select
+        from app.core.database import AsyncSessionLocal
+        from app.models.device import Device, DeviceStatus
+        try:
+            dev_uuid = _uuid.UUID(str(device_id))
+        except (ValueError, TypeError):
+            return
+        try:
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(select(Device).where(Device.id == dev_uuid))
+                device = result.scalar_one_or_none()
+                if device is None:
+                    return
+                if device.status != DeviceStatus.REVOKED:
+                    device.status = DeviceStatus.ACTIVE if connected else DeviceStatus.DISCONNECTED
+                device.last_seen_at = datetime.now(timezone.utc)
+                await db.commit()
+        except Exception as e:  # pragma: no cover - defensive; presence is non-critical
+            logger.warning("Could not persist presence for device %s: %s", device_id, e)
 
     async def send_to_user(self, user_id: str, message: dict):
         """Send a message to a specific user."""
