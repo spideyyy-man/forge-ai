@@ -165,6 +165,10 @@ async def run_agent_workflow(
         # Register a cancel handle so a WS `cancel` for this conversation can stop the run.
         connection_manager.get_cancel_event(str(conversation_id))
 
+        # Persist the run so its status + activity stream survive a page refresh.
+        from app.agents import run_store
+        await run_store.start_run(conversation_id, user_id, prompt)
+
         # Run state graph
         try:
             final_state = await engineering_graph.ainvoke(initial_state)
@@ -195,6 +199,16 @@ async def run_agent_workflow(
                 "verification_passed": final_state.get("verification_passed"),
             })
 
+            # Persist the finished run for refresh replay.
+            await run_store.finish_run(
+                conversation_id,
+                status="CANCELLED" if final_state.get("status") == "CANCELLED" else "COMPLETED",
+                final_text=reply_text,
+                modified_files=final_state.get("modified_files", []),
+                executed_commands=final_state.get("executed_commands", []),
+                verification_passed=final_state.get("verification_passed"),
+            )
+
         except Exception as e:
             err_msg = Message(
                 conversation_id=conv_uuid,
@@ -211,6 +225,7 @@ async def run_agent_workflow(
                 "conversation_id": str(conversation_id),
                 "content": f"Engineering agent error: {str(e)}",
             })
+            await run_store.finish_run(conversation_id, status="FAILED", error=str(e))
         finally:
             connection_manager.clear_cancel(str(conversation_id))
 
@@ -298,6 +313,41 @@ async def get_messages(
         .offset(offset)
     )
     return result.scalars().all()
+
+
+@router.get("/{conversation_id}/run")
+async def get_conversation_run(
+    conversation_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the persisted run record (status + activity stream) for refresh replay."""
+    conv = await db.execute(
+        select(Conversation).where(
+            Conversation.id == conversation_id,
+            Conversation.user_id == current_user.id,
+        )
+    )
+    if not conv.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    from app.agents.run_store import get_run
+    run = await get_run(conversation_id)
+    if run is None:
+        return {"status": None, "events": [], "modified_files": [], "executed_commands": [],
+                "verification_passed": None, "error": None, "final_text": None}
+    return {
+        "conversation_id": str(run.conversation_id),
+        "status": getattr(run.status, "value", run.status),
+        "events": run.events or [],
+        "modified_files": run.modified_files or [],
+        "executed_commands": run.executed_commands or [],
+        "verification_passed": run.verification_passed,
+        "error": run.error,
+        "final_text": run.final_text,
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+    }
 
 
 @router.post("/{conversation_id}/messages", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)

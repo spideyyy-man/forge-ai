@@ -107,7 +107,10 @@ async def coding_node(state: AgentExecutionState) -> Dict[str, Any]:
         try:
             await connection_manager.send_to_user(user_id, {**event, "conversation_id": conv_id})
         except Exception:
-            pass  # events are best-effort
+            pass  # live events are best-effort
+        # Persist for refresh replay (also best-effort; never breaks the run).
+        from app.agents import run_store
+        await run_store.append_event(conv_id, event)
 
     # On a self-repair pass, prepend the failing test output so the model fixes it.
     description = state["description"]

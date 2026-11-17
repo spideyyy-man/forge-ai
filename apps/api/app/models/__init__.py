@@ -5,6 +5,7 @@ from app.models.conversation import Conversation, ConversationStatus, Message, M
 from app.models.device import Device, DeviceStatus, DeviceType
 from app.models.project import PrivacyMode, Project, ProjectStatus
 from app.models.provider import ModelEntry, ProviderAccount, ProviderType, SpeedTier
+from app.models.run import AgentRun, AgentRunStatus
 from app.models.task import AgentTask, AgentTaskStatus, TaskComplexity
 from app.models.user import User
 from app.models.workspace import Workspace
@@ -31,4 +32,6 @@ __all__ = [
     "AgentTask",
     "AgentTaskStatus",
     "TaskComplexity",
+    "AgentRun",
+    "AgentRunStatus",
 ]
