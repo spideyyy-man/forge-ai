@@ -50,6 +50,14 @@ export interface RunRecord {
   completed_at?: string | null;
 }
 
+export type ApprovalMode = "auto" | "approve";
+
+export interface ApprovalPolicyResponse {
+  modes: Record<string, ApprovalMode>;
+  classes: string[];
+  defaults: Record<string, ApprovalMode>;
+}
+
 export interface Workspace {
   id: string;
   device_id: string;

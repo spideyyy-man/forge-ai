@@ -1,4 +1,4 @@
-import { User, Device, Workspace, Project, ProviderAccount, ModelEntry, Conversation, Message, AgentTask, RunRecord } from "@/types";
+import { User, Device, Workspace, Project, ProviderAccount, ModelEntry, Conversation, Message, AgentTask, RunRecord, ApprovalPolicyResponse } from "@/types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
@@ -178,6 +178,18 @@ class ApiClient {
 
   async getConversationRun(conversationId: string): Promise<RunRecord> {
     return this.request(`/conversations/${conversationId}/run`);
+  }
+
+  // Settings
+  async getApprovalPolicy(): Promise<ApprovalPolicyResponse> {
+    return this.request(`/settings/approval-policy`);
+  }
+
+  async updateApprovalPolicy(modes: Record<string, string>): Promise<ApprovalPolicyResponse> {
+    return this.request(`/settings/approval-policy`, {
+      method: "PUT",
+      body: JSON.stringify({ modes }),
+    });
   }
 
   async sendMessage(conversationId: string, data: { content: string; role?: string }): Promise<Message> {
