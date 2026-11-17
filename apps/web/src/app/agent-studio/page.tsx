@@ -9,7 +9,7 @@ import { wsClient } from "@/lib/ws";
 import { Message } from "@/types";
 import { useDeviceStore } from "@/stores/device-store";
 import { useAuthStore } from "@/stores/auth-store";
-import { Bot, Send, Sparkles, FolderOpen, User2, Loader2, CornerDownLeft, Cpu, ArrowRight, ChevronDown, Check, Plus } from "lucide-react";
+import { Bot, Send, Sparkles, FolderOpen, User2, Loader2, CornerDownLeft, Cpu, ArrowRight, ChevronDown, Check, Plus, Square } from "lucide-react";
 
 type ChatMsg = { id: string; role: "user" | "assistant" | "system"; content: string; pending?: boolean };
 
@@ -184,6 +184,7 @@ export default function AgentStudioPage() {
   const [needsProvider, setNeedsProvider] = useState(false);
   const [approval, setApproval] = useState<Approval | null>(null);
   const [activity, setActivity] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   const user = useAuthStore((s) => s.user);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -195,6 +196,17 @@ export default function AgentStudioPage() {
     wsClient.send({ type: "approval_decision", approval_id: approvalId, approved });
     setApproval((cur) => (cur?.approval_id === approvalId ? null : cur));
     setActivity(approved ? "Applying change…" : "Change rejected — adapting…");
+  };
+
+  // Ask the backend to stop the running task. Cooperative: it halts at the next
+  // step/tool boundary; any edits already applied remain revertable.
+  const handleCancel = () => {
+    const id = convRef.current;
+    if (!id) return;
+    wsClient.send({ type: "cancel", conversation_id: id });
+    setCancelling(true);
+    setApproval(null);
+    setActivity("Stopping…");
   };
 
   // Short human label for a live tool event.
@@ -232,6 +244,14 @@ export default function AgentStudioPage() {
         } else if (msg.event_type === "completion") {
           setActivity(null);
           setApproval(null);
+          setCancelling(false);
+        } else if (msg.event_type === "error") {
+          // Surface a failed run immediately, even if the poll window has closed.
+          setActivity(null);
+          setApproval(null);
+          setCancelling(false);
+          setError(msg.content || "The agent run failed.");
+          setMessages((prev) => prev.filter((m) => m.id !== "pending"));
         }
       }
     });
@@ -327,6 +347,7 @@ export default function AgentStudioPage() {
     } finally {
       setSending(false);
       setActivity(null);
+      setCancelling(false);
       textareaRef.current?.focus();
     }
   };
@@ -338,7 +359,7 @@ export default function AgentStudioPage() {
     }
   };
 
-  const agentLinked = activeDevice?.status === "ACTIVE";
+  const agentLinked = !!activeDevice?.is_connected;
 
   return (
     <div className="max-w-3xl mx-auto flex flex-col h-[calc(100vh-7rem)]">
@@ -528,16 +549,30 @@ export default function AgentStudioPage() {
             rows={2}
             className="flex-1 bg-transparent text-sm text-slate-100 placeholder:text-muted-foreground focus:outline-none resize-none px-2 py-1.5 max-h-40"
           />
-          <Button
-            size="md"
-            className="shrink-0 h-10 px-4"
-            onClick={handleSend}
-            disabled={!prompt.trim() || sending}
-            aria-label="Send task to the agent"
-          >
-            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            <span className="hidden sm:inline">Send</span>
-          </Button>
+          {sending ? (
+            <Button
+              size="md"
+              variant="danger"
+              className="shrink-0 h-10 px-4"
+              onClick={handleCancel}
+              disabled={cancelling}
+              aria-label="Stop the running task"
+            >
+              {cancelling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+              <span className="hidden sm:inline">{cancelling ? "Stopping…" : "Stop"}</span>
+            </Button>
+          ) : (
+            <Button
+              size="md"
+              className="shrink-0 h-10 px-4"
+              onClick={handleSend}
+              disabled={!prompt.trim()}
+              aria-label="Send task to the agent"
+            >
+              <Send className="h-4 w-4" />
+              <span className="hidden sm:inline">Send</span>
+            </Button>
+          )}
         </div>
         <div className="flex items-center justify-center gap-1 text-[10px] text-muted-foreground mt-1.5">
           <CornerDownLeft className="h-3 w-3" /> Enter to send · Shift+Enter for a new line
