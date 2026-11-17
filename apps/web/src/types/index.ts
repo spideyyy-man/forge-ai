@@ -23,6 +23,8 @@ export interface Device {
   os_info?: Record<string, any> | null;
   created_at: string;
   updated_at?: string | null;
+  // Live: agent currently holds an open WebSocket (overlaid by the API, not stored).
+  is_connected?: boolean;
 }
 
 export interface Workspace {

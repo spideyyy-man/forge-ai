@@ -68,6 +68,7 @@ export const AppBootstrap = () => {
         useDeviceStore.getState().fetchDevices(),
         useDeviceStore.getState().fetchWorkspaces(),
         useDeviceStore.getState().fetchProjects(),
+        useDeviceStore.getState().fetchProviders(),
       ]);
       if (!cancelled) setAuthReady(true);
     }

@@ -11,9 +11,17 @@ import { Laptop, Cpu, LogOut } from "lucide-react";
 
 export const Topbar = () => {
   const { user, isAuthenticated, logout } = useAuthStore();
-  const { activeDevice, activeWorkspace } = useDeviceStore();
+  const { activeDevice, activeWorkspace, providers } = useDeviceStore();
   const { setIsPairingDialogOpen } = useUIStore();
   const requestRetry = useSystemStore((s) => s.requestRetry);
+
+  const enabledProviders = providers.filter((p) => p.is_enabled).length;
+  const agentConnected = !!activeDevice?.is_connected;
+  const agentLabel = agentConnected
+    ? "Agent Connected"
+    : activeDevice
+      ? "Agent Offline"
+      : "Connect Agent";
 
   return (
     <header className="h-14 border-b border-border bg-surface/70 backdrop-blur-md px-6 flex items-center justify-between z-20">
@@ -31,21 +39,32 @@ export const Topbar = () => {
       </div>
 
       <div className="flex items-center gap-3">
-        {/* Model Indicator */}
-        <Badge variant="outline" className="text-[11px] gap-1.5 py-1 px-2.5 bg-[#12121e]">
-          <Cpu className="h-3 w-3 text-indigo-400" />
-          <span>Auto-Routing Active</span>
+        {/* Model Indicator — reflects real configured providers, not a fixed label */}
+        <Badge
+          variant="outline"
+          className="text-[11px] gap-1.5 py-1 px-2.5 bg-[#12121e]"
+          title={enabledProviders > 0 ? "Model routing across your enabled providers" : "No model provider configured yet"}
+        >
+          <Cpu className={`h-3 w-3 ${enabledProviders > 0 ? "text-indigo-400" : "text-slate-500"}`} />
+          <span>
+            {enabledProviders > 0
+              ? `Routing · ${enabledProviders} provider${enabledProviders === 1 ? "" : "s"}`
+              : "No model configured"}
+          </span>
         </Badge>
 
-        {/* Pair Device Button */}
+        {/* Pair Device Button — label reflects live connection */}
         <Button
           variant="outline"
           size="sm"
           onClick={() => setIsPairingDialogOpen(true)}
           className="text-xs h-8 gap-1.5 border-[#282844] hover:bg-[#1b1b30]"
         >
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${agentConnected ? "bg-emerald-400" : activeDevice ? "bg-amber-400" : "bg-slate-500"}`}
+          />
           <Laptop className="h-3.5 w-3.5 text-slate-400" />
-          <span>{activeDevice ? "Agent Paired" : "Connect Agent"}</span>
+          <span>{agentLabel}</span>
         </Button>
 
         {/* User / Auth Info */}

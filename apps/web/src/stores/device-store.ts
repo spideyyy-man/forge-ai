@@ -1,11 +1,12 @@
 import { create } from "zustand";
-import { Device, Workspace, Project } from "@/types";
+import { Device, Workspace, Project, ProviderAccount } from "@/types";
 import { api } from "@/lib/api";
 
 interface DeviceState {
   devices: Device[];
   workspaces: Workspace[];
   projects: Project[];
+  providers: ProviderAccount[];
   activeDevice: Device | null;
   activeWorkspace: Workspace | null;
   activeProject: Project | null;
@@ -15,6 +16,7 @@ interface DeviceState {
   fetchDevices: () => Promise<void>;
   fetchWorkspaces: () => Promise<void>;
   fetchProjects: () => Promise<void>;
+  fetchProviders: () => Promise<void>;
   registerDevice: (name: string, device_type?: string) => Promise<Device>;
   createWorkspace: (data: { device_id: string; name: string; root_path: string }) => Promise<Workspace>;
   activateWorkspace: (workspace: Workspace) => Promise<void>;
@@ -29,6 +31,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   devices: [],
   workspaces: [],
   projects: [],
+  providers: [],
   activeDevice: null,
   activeWorkspace: null,
   activeProject: null,
@@ -42,11 +45,28 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       set({ devices, isLoading: false });
       const currentActive = get().activeDevice;
       if (!currentActive && devices.length > 0) {
-        const active = devices.find((d) => d.status === "ACTIVE") || devices[0];
+        // Prefer a live (connected) agent, then a paired one, else the first row.
+        const active =
+          devices.find((d) => d.is_connected) ||
+          devices.find((d) => d.status === "ACTIVE") ||
+          devices[0];
         set({ activeDevice: active });
+      } else if (currentActive) {
+        // Keep the active device's live fields fresh after a refetch.
+        const refreshed = devices.find((d) => d.id === currentActive.id);
+        if (refreshed) set({ activeDevice: refreshed });
       }
     } catch (err: any) {
       set({ error: err.message, isLoading: false });
+    }
+  },
+
+  fetchProviders: async () => {
+    try {
+      const providers = await api.getProviders();
+      set({ providers });
+    } catch (err: any) {
+      console.error("Error fetching providers:", err);
     }
   },
 

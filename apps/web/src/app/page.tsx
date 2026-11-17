@@ -50,7 +50,8 @@ export default function DashboardPage() {
     loadData();
   }, []);
 
-  const isAgentActive = activeDevice && activeDevice.status === "ACTIVE";
+  // Live truth: the agent is "active" only when it currently holds a WebSocket.
+  const isAgentActive = !!activeDevice?.is_connected;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 animate-in">
@@ -306,20 +307,35 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          {/* Supported Providers List */}
+          {/* Configured Adapters — the user's actual enabled providers, not a fixed list */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm">Configured Adapters</CardTitle>
-              <CardDescription>Active model routing nodes</CardDescription>
+              <CardDescription>Your enabled model providers</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-wrap gap-1.5">
-                {["NVIDIA NIM", "Google Gemini", "Groq", "Cerebras", "DeepSeek", "Mistral", "Ollama"].map((name) => (
-                  <Badge key={name} variant="outline" className="text-[10px] bg-[#141420]">
-                    {name}
-                  </Badge>
-                ))}
-              </div>
+              {loading ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {[0, 1, 2].map((i) => (
+                    <div key={i} className="h-5 w-16 rounded bg-[#141420] animate-pulse" />
+                  ))}
+                </div>
+              ) : providers.filter((p) => p.is_enabled).length === 0 ? (
+                <div className="text-xs text-slate-500">
+                  No providers configured yet.{" "}
+                  <a href="/models" className="text-ember hover:underline">Add one →</a>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {providers
+                    .filter((p) => p.is_enabled)
+                    .map((p) => (
+                      <Badge key={p.id} variant="outline" className="text-[10px] bg-[#141420]">
+                        {p.display_name}
+                      </Badge>
+                    ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
