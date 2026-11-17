@@ -166,6 +166,9 @@ CompleteFn = Callable[[List[Dict[str, Any]], Optional[List[Dict[str, Any]]]], Aw
 ExecToolFn = Callable[[str, Dict[str, Any]], Awaitable[Dict[str, Any]]]
 ApprovalFn = Callable[[Dict[str, Any]], Awaitable[bool]]
 EmitFn = Callable[[Dict[str, Any]], Awaitable[None]]
+# Returns True when the user has asked to stop the run. Checked cooperatively between
+# steps and between tool calls so a cancel takes effect at the next safe boundary.
+CancelFn = Callable[[], bool]
 
 
 def message_to_dict(msg: Any) -> Dict[str, Any]:
@@ -217,11 +220,16 @@ async def run_engineering_loop(
     emit: EmitFn,
     device_connected: bool,
     max_steps: int = 12,
+    should_cancel: Optional[CancelFn] = None,
 ) -> Dict[str, Any]:
     """Run the bounded tool-calling loop. Returns a result summary dict.
 
     Keys: text, modified_files, executed_commands, undo (list of {path, old_content,
-    was_created} for rollback), steps.
+    was_created} for rollback), steps, cancelled.
+
+    If ``should_cancel`` is provided it is polled between steps and between tool calls;
+    when it returns True the loop stops at the next boundary and returns cancelled=True.
+    Any edits already applied remain in ``undo`` so they can still be rolled back.
     """
     stable = f"{SYSTEM_INSTRUCTIONS}\n\nActive workspace: {workspace_path}"
     if repo_context:
@@ -241,7 +249,19 @@ async def run_engineering_loop(
     # Without a connected agent we cannot run tools, so fall back to a single advisory reply.
     tools = TOOL_DEFS if device_connected else None
 
+    def _cancelled(step: int) -> Dict[str, Any]:
+        return {
+            "text": "Task cancelled by user. Any changes already applied can be reverted.",
+            "modified_files": modified_files,
+            "executed_commands": executed_commands,
+            "undo": undo,
+            "steps": step,
+            "cancelled": True,
+        }
+
     for step in range(max_steps):
+        if should_cancel and should_cancel():
+            return _cancelled(step)
         res = await complete(messages, tools)
         if not res.get("success"):
             return {
@@ -266,6 +286,8 @@ async def run_engineering_loop(
             }
 
         for tc in tool_calls:
+            if should_cancel and should_cancel():
+                return _cancelled(step + 1)
             name = tc["function"]["name"]
             args = _parse_args(tc["function"]["arguments"])
             call_id = tc.get("id")

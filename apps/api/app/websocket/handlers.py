@@ -86,5 +86,11 @@ async def handle_user_message(data: dict, user_id: str):
         if not matched:
             logger.info(f"Approval decision for unknown/expired id {approval_id} from user {user_id}")
 
+    elif msg_type == "cancel":
+        conversation_id = data.get("conversation_id")
+        if conversation_id:
+            matched = connection_manager.request_cancel(str(conversation_id))
+            logger.info(f"Cancel requested by {user_id} for {conversation_id} (matched={matched})")
+
     else:
         logger.warning(f"Unknown user message type: {msg_type}")

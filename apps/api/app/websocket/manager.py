@@ -19,6 +19,8 @@ class ConnectionManager:
         self.pending_requests: Dict[str, dict] = {}
         # approval_id -> {"future": Future} awaiting a user approve/reject decision.
         self.pending_approvals: Dict[str, dict] = {}
+        # conversation_id -> Event; set when the user asks to stop that run.
+        self.cancel_events: Dict[str, "asyncio.Event"] = {}
 
     async def connect_user(self, websocket: WebSocket, user_id: str):
         """Accept and register a user WebSocket connection."""
@@ -33,14 +35,61 @@ class ConnectionManager:
         await self._persist_device_presence(device_id, connected=True)
 
     def disconnect_user(self, user_id: str):
-        """Remove a user connection."""
+        """Remove a user connection and fail-close any approvals they were awaiting."""
         self.user_connections.pop(user_id, None)
+        self._fail_user_approvals(user_id)
         logger.info(f"User {user_id} disconnected")
 
     def disconnect_device(self, device_id: str):
-        """Remove a device connection (socket only; see mark_device_disconnected to persist)."""
+        """Remove a device connection (socket only; see mark_device_disconnected to persist).
+
+        Also fails any in-flight tool-call futures for this device so callers fail fast
+        instead of blocking the full request timeout."""
         self.device_connections.pop(device_id, None)
+        self._fail_device_requests(device_id)
         logger.info(f"Device {device_id} disconnected")
+
+    def _fail_user_approvals(self, user_id: str):
+        """Reject (fail-closed) any pending approvals the departing user owned."""
+        for approval_id, info in list(self.pending_approvals.items()):
+            if info.get("user_id") != user_id:
+                continue
+            future = info.get("future")
+            if future and not future.done():
+                future.set_result(False)
+
+    def _fail_device_requests(self, device_id: str):
+        """Fail any in-flight tool calls awaiting the departing device."""
+        for correlation_id, info in list(self.pending_requests.items()):
+            if info.get("device_id") != device_id:
+                continue
+            future = info.get("future")
+            if future and not future.done():
+                future.set_exception(ConnectionError(f"Local agent {device_id} disconnected"))
+
+    # --- Run cancellation (cooperative) ---------------------------------------
+    def get_cancel_event(self, conversation_id: str) -> "asyncio.Event":
+        """Return (creating if needed) the cancel Event for a conversation's run."""
+        event = self.cancel_events.get(conversation_id)
+        if event is None:
+            event = asyncio.Event()
+            self.cancel_events[conversation_id] = event
+        return event
+
+    def request_cancel(self, conversation_id: str) -> bool:
+        """Signal a running task to stop. Returns True if a run was registered to cancel."""
+        event = self.cancel_events.get(conversation_id)
+        if event is None:
+            return False
+        event.set()
+        return True
+
+    def is_cancelled(self, conversation_id: str) -> bool:
+        event = self.cancel_events.get(conversation_id)
+        return bool(event and event.is_set())
+
+    def clear_cancel(self, conversation_id: str):
+        self.cancel_events.pop(conversation_id, None)
 
     async def mark_device_disconnected(self, device_id: str):
         """Remove the socket and persist DISCONNECTED + last_seen in the DB."""

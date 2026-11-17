@@ -127,10 +127,12 @@ async def coding_node(state: AgentExecutionState) -> Dict[str, Any]:
         request_approval=request_approval,
         emit=emit,
         device_connected=bool(device_id),
+        should_cancel=lambda: connection_manager.is_cancelled(conv_id),
     )
 
+    cancelled = bool(result.get("cancelled"))
     return {
-        "status": "VERIFYING",
+        "status": "CANCELLED" if cancelled else "VERIFYING",
         "current_step_index": 2,
         "messages": [{"role": "assistant", "content": result["text"]}],
         "modified_files": result.get("modified_files", []),
@@ -165,6 +167,15 @@ async def verification_node(state: AgentExecutionState) -> Dict[str, Any]:
     device_id = state.get("device_id")
     workspace = state.get("workspace_path", ".")
     modified = state.get("modified_files") or []
+
+    # A cancelled run skips verification entirely — don't run tests on a half-done change.
+    if state.get("status") == "CANCELLED":
+        return {
+            "verification_passed": True,
+            "error": None,
+            "current_step_index": 3,
+            "messages": [{"role": "system", "content": "Verification skipped (task cancelled)."}],
+        }
 
     if not device_id or not modified:
         reason = "no files changed" if device_id else "no local agent connected"
@@ -208,6 +219,8 @@ async def verification_node(state: AgentExecutionState) -> Dict[str, Any]:
 
 def should_repair(state: AgentExecutionState) -> str:
     """Conditional router: verify passed or attempt bounded self-repair."""
+    if state.get("status") == "CANCELLED":
+        return "completed"
     if state.get("verification_passed"):
         return "completed"
     if state.get("retry_count", 0) < state.get("max_retries", 2):

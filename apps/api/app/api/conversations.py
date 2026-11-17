@@ -162,6 +162,9 @@ async def run_agent_workflow(
             "max_retries": 2,
         }
 
+        # Register a cancel handle so a WS `cancel` for this conversation can stop the run.
+        connection_manager.get_cancel_event(str(conversation_id))
+
         # Run state graph
         try:
             final_state = await engineering_graph.ainvoke(initial_state)
@@ -184,6 +187,8 @@ async def run_agent_workflow(
                 "event_type": "completion",
                 "conversation_id": str(conversation_id),
                 "content": reply_text,
+                "status": final_state.get("status"),
+                "cancelled": final_state.get("status") == "CANCELLED",
                 "plan": final_state.get("plan"),
                 "modified_files": final_state.get("modified_files", []),
                 "executed_commands": final_state.get("executed_commands", []),
@@ -198,6 +203,16 @@ async def run_agent_workflow(
             )
             db.add(err_msg)
             await db.commit()
+            # Also push the failure live — otherwise a client whose poll window closed
+            # (or that refreshed) never learns the run failed; the spinner just stops.
+            await connection_manager.send_to_user(str(user_id), {
+                "type": "agent_event",
+                "event_type": "error",
+                "conversation_id": str(conversation_id),
+                "content": f"Engineering agent error: {str(e)}",
+            })
+        finally:
+            connection_manager.clear_cancel(str(conversation_id))
 
 
 @router.post("/", response_model=ConversationResponse, status_code=status.HTTP_201_CREATED)
