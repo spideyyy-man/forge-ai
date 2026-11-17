@@ -27,6 +27,29 @@ export interface Device {
   is_connected?: boolean;
 }
 
+export interface RunEvent {
+  seq: number;
+  type: string; // "tool_call" | "tool_result" | ...
+  tool?: string;
+  ok?: boolean;
+  target?: string;
+}
+
+export type RunStatus = "RUNNING" | "COMPLETED" | "CANCELLED" | "FAILED" | null;
+
+export interface RunRecord {
+  conversation_id?: string;
+  status: RunStatus;
+  events: RunEvent[];
+  modified_files: string[];
+  executed_commands: any[];
+  verification_passed?: boolean | null;
+  error?: string | null;
+  final_text?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+}
+
 export interface Workspace {
   id: string;
   device_id: string;

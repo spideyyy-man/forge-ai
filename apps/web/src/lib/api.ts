@@ -1,4 +1,4 @@
-import { User, Device, Workspace, Project, ProviderAccount, ModelEntry, Conversation, Message, AgentTask } from "@/types";
+import { User, Device, Workspace, Project, ProviderAccount, ModelEntry, Conversation, Message, AgentTask, RunRecord } from "@/types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
@@ -174,6 +174,10 @@ class ApiClient {
 
   async getMessages(conversationId: string): Promise<Message[]> {
     return this.request(`/conversations/${conversationId}/messages`);
+  }
+
+  async getConversationRun(conversationId: string): Promise<RunRecord> {
+    return this.request(`/conversations/${conversationId}/run`);
   }
 
   async sendMessage(conversationId: string, data: { content: string; role?: string }): Promise<Message> {

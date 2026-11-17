@@ -245,11 +245,19 @@ export default function AgentStudioPage() {
           setActivity(null);
           setApproval(null);
           setCancelling(false);
+          setSending(false);
+          if (msg.content) {
+            setMessages((prev) => [
+              ...prev.filter((m) => m.id !== "pending"),
+              { id: `done-${Date.now()}`, role: "assistant", content: msg.content },
+            ]);
+          }
         } else if (msg.event_type === "error") {
           // Surface a failed run immediately, even if the poll window has closed.
           setActivity(null);
           setApproval(null);
           setCancelling(false);
+          setSending(false);
           setError(msg.content || "The agent run failed.");
           setMessages((prev) => prev.filter((m) => m.id !== "pending"));
         }
@@ -273,6 +281,53 @@ export default function AgentStudioPage() {
       .catch(() => {});
   }, []);
 
+  // Rebuild chat + live state for a conversation referenced in the URL, so a page
+  // refresh resumes an in-flight run (status, activity, Stop) instead of losing it.
+  const hydrateConversation = async (id: string) => {
+    convRef.current = id;
+    try {
+      const [msgs, run] = await Promise.all([
+        api.getMessages(id).catch(() => [] as Message[]),
+        api.getConversationRun(id).catch(() => null),
+      ]);
+      const chat: ChatMsg[] = msgs
+        .filter((m) => {
+          const r = String(m.role).toLowerCase();
+          return r === "user" || r === "assistant" || r === "system";
+        })
+        .map((m) => {
+          const r = String(m.role).toLowerCase();
+          return {
+            id: m.id,
+            role: (r === "user" ? "user" : r === "system" ? "system" : "assistant") as ChatMsg["role"],
+            content: m.content,
+          };
+        });
+      if (run && run.status === "RUNNING") {
+        const last = run.events?.[run.events.length - 1];
+        setActivity(last?.tool ? toolLabel(last.tool, { path: last.target }) : "Working…");
+        setMessages([...chat, { id: "pending", role: "assistant", content: "", pending: true }]);
+        setSending(true); // show Stop + spinner; live WS events + completion will resolve it
+      } else {
+        setMessages(chat);
+        if (run?.error) setError(run.error);
+      }
+    } catch {
+      /* best-effort replay */
+    }
+  };
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const url = new URL(window.location.href);
+    const existing = url.searchParams.get("c");
+    if (existing && !convId) {
+      setConvId(existing);
+      hydrateConversation(existing);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
   const ensureConversation = async (): Promise<string> => {
     if (convId) return convId;
     const conv = await api.createConversation({
@@ -280,6 +335,14 @@ export default function AgentStudioPage() {
       agent_type: mode === "plan_only" ? "planner" : mode === "review" ? "reviewer" : "engineer",
     });
     setConvId(conv.id);
+    // Put the conversation in the URL so a refresh can resume this run.
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("c", conv.id);
+      window.history.replaceState(null, "", url.toString());
+    } catch {
+      /* non-fatal */
+    }
     return conv.id;
   };
 
