@@ -1,9 +1,66 @@
 """Application configuration using Pydantic Settings."""
 
 from functools import lru_cache
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+# Query params that libpq/psql understand but asyncpg does not accept in the
+# DSN. Managed Postgres providers (Neon, Supabase, Render, ...) hand out URLs
+# that carry these, so we strip them and translate the SSL intent into
+# asyncpg connect_args instead.
+_LIBPQ_ONLY_PARAMS = {"sslmode", "channel_binding", "options"}
+_SSL_ENABLING_VALUES = {"require", "verify-ca", "verify-full", "prefer", "allow", "true", "1"}
+
+
+def normalize_db_url(raw: str) -> Tuple[str, Dict[str, object]]:
+    """Return an asyncpg-compatible SQLAlchemy URL and its connect_args.
+
+    - Upgrades bare ``postgres://`` / ``postgresql://`` schemes to
+      ``postgresql+asyncpg://`` so a provider's plain DSN works unchanged.
+    - Drops libpq-only query params (``sslmode``, ``channel_binding``,
+      ``options``) that asyncpg rejects, and converts an SSL request into
+      ``connect_args={"ssl": True}``.
+    - Leaves sqlite and already-qualified (``+driver``) URLs untouched.
+    """
+    url = (raw or "").strip()
+    connect_args: Dict[str, object] = {}
+    if not url:
+        return url, connect_args
+
+    parts = urlsplit(url)
+    scheme = parts.scheme
+
+    # Upgrade bare postgres schemes to the async driver.
+    if scheme in ("postgres", "postgresql"):
+        scheme = "postgresql+asyncpg"
+
+    # Only postgres needs the libpq param / SSL handling.
+    if scheme.startswith("postgresql"):
+        kept: List[Tuple[str, str]] = []
+        ssl_required = False
+        for key, value in parse_qsl(parts.query, keep_blank_values=True):
+            lowered = key.lower()
+            if lowered in _LIBPQ_ONLY_PARAMS:
+                if value.lower() in _SSL_ENABLING_VALUES:
+                    ssl_required = True
+                continue
+            if lowered == "ssl":
+                if value.lower() in _SSL_ENABLING_VALUES:
+                    ssl_required = True
+                continue
+            kept.append((key, value))
+        parts = parts._replace(scheme=scheme, query=urlencode(kept))
+        url = urlunsplit(parts)
+        if ssl_required:
+            connect_args["ssl"] = True
+    elif scheme != parts.scheme:
+        url = urlunsplit(parts._replace(scheme=scheme))
+
+    return url, connect_args
 
 
 class Settings(BaseSettings):
@@ -54,6 +111,16 @@ class Settings(BaseSettings):
         elif isinstance(v, list):
             return v
         return ["*"]
+
+    @property
+    def sqlalchemy_url(self) -> str:
+        """DATABASE_URL normalized to an asyncpg-compatible SQLAlchemy URL."""
+        return normalize_db_url(self.DATABASE_URL)[0]
+
+    @property
+    def db_connect_args(self) -> Dict[str, object]:
+        """Driver connect_args derived from DATABASE_URL (e.g. SSL for managed Postgres)."""
+        return normalize_db_url(self.DATABASE_URL)[1]
 
 
 @lru_cache()

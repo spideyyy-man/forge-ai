@@ -14,8 +14,8 @@ import app.models  # ensure all models are registered on Base
 # access to the values within the .ini file in use.
 config = context.config
 
-# Set sqlalchemy.url from our settings
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# Set sqlalchemy.url from our settings (normalized for managed-Postgres DSNs)
+config.set_main_option("sqlalchemy.url", settings.sqlalchemy_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -48,6 +48,7 @@ async def run_async_migrations() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=settings.db_connect_args,
     )
 
     async with connectable.connect() as connection:
