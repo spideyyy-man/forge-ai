@@ -14,6 +14,10 @@ const DEV_PASSWORD = "forgedev123";
 
 const AUTOLOGIN = process.env.NEXT_PUBLIC_DEV_AUTOLOGIN !== "false";
 
+// The backend origin we actually try to reach, for an accurate offline message
+// (works whether running against localhost or a deployed API URL).
+const API_ORIGIN = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api").replace(/\/api\/?$/, "");
+
 /**
  * Runs once on load: confirms the backend is reachable, signs in with the local
  * dev account so the app has a valid token, then warms the core data stores.
@@ -36,7 +40,7 @@ export const AppBootstrap = () => {
       } catch {
         if (!cancelled) {
           setBackendStatus("offline");
-          setLastError("Can't reach the FORGE AI backend on http://localhost:8000. Start it, then retry.");
+          setLastError(`Can't reach the FORGE AI backend on ${API_ORIGIN}. Start it, then retry.`);
         }
         return;
       }

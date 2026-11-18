@@ -17,24 +17,30 @@ class Base(DeclarativeBase):
     pass
 
 
+# Normalized URL + driver connect_args (handles managed-Postgres DSNs that
+# arrive as postgres:// with ?sslmode=require, etc.)
+database_url = settings.sqlalchemy_url
+connect_args: dict = dict(settings.db_connect_args)
+
 # Engine arguments based on dialect
 engine_kwargs = {
     "echo": settings.DEBUG,
     "future": True,
 }
 
-if settings.DATABASE_URL.startswith("postgresql"):
+if database_url.startswith("postgresql"):
     engine_kwargs.update({
         "pool_size": 20,
         "max_overflow": 10,
         "pool_pre_ping": True,
     })
-elif settings.DATABASE_URL.startswith("sqlite"):
-    engine_kwargs.update({
-        "connect_args": {"check_same_thread": False},
-    })
+elif database_url.startswith("sqlite"):
+    connect_args.setdefault("check_same_thread", False)
 
-engine: AsyncEngine = create_async_engine(settings.DATABASE_URL, **engine_kwargs)
+if connect_args:
+    engine_kwargs["connect_args"] = connect_args
+
+engine: AsyncEngine = create_async_engine(database_url, **engine_kwargs)
 
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,
