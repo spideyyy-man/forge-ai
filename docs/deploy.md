@@ -87,16 +87,19 @@ Create a new **Web Service** → **Build from a Dockerfile**.
 - **Docker build context directory:** `apps/api`
 - **Instance type:** Free
 
-> **Docker Command (override).** The repo's Dockerfile hardcodes port 8000 and does
-> **not** run migrations. With `DEBUG=false` the app does **not** auto-create tables
-> (table creation is dev-only, see `apps/api/app/main.py`). Override the start command
-> in Render so it runs migrations and binds to Render's injected `$PORT`:
+> **Migrations + port — handled by the Dockerfile; no override needed.** The
+> container's start command runs `alembic upgrade head` and binds to the host-injected
+> `$PORT` (falling back to 8000). This matters because with `DEBUG=false` the app does
+> **not** auto-create tables (table creation is dev-only, see `apps/api/app/main.py`).
+> On Render you can leave the start command at its default. `docker-compose` is
+> unaffected — it overrides the command with its own `--reload` dev server.
+>
+> If your host cannot inject `$PORT` or runs a single shared DB where you would rather
+> not migrate on every boot, override the start command instead and run migrations as a
+> separate release step:
 > ```
-> sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+> sh -c "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
 > ```
-> This keeps the repo's Dockerfile unchanged. (Alternative for other hosts: change the
-> Dockerfile `CMD` to the shell form `uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}`
-> and run `alembic upgrade head` as a separate release step.)
 
 **Environment variables** (Render → Environment):
 

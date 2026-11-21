@@ -14,4 +14,9 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Shell form so a host-injected $PORT (e.g. Render) is honoured, with a local
+# fallback to 8000. Runs migrations first: with DEBUG=false the app does NOT
+# auto-create tables (table creation is dev-only, see app/main.py). `exec` hands
+# signals to uvicorn for a clean shutdown. docker-compose is unaffected — it
+# overrides this command with its own --reload dev server.
+CMD sh -c "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
